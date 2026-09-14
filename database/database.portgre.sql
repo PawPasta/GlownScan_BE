@@ -1,11 +1,3 @@
--- GlowScan: custom authentication, PostgreSQL 15+ / Supabase SQL Editor.
--- INITIAL INSTALL ONLY, not an upgrade migration. Run in an empty app_auth schema.
--- No DROP, no subscriptions, no Supabase Auth integration.
--- Supabase: use the existing project database; do not create/modify auth.*.
--- Standalone PostgreSQL: optionally create database "GlowScan" separately,
--- connect to it, then execute this file. No psql-only commands in this script.
--- Private backend-only schema: never expose credentials/tokens through the Data API.
-
 BEGIN;
 CREATE SCHEMA app_auth;
 REVOKE ALL ON SCHEMA app_auth FROM PUBLIC;
@@ -56,18 +48,20 @@ CREATE TABLE app_auth.permissions (
                                       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE app_auth.user_roles (
+                                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                      user_id UUID NOT NULL REFERENCES app_auth.users(id) ON DELETE CASCADE,
                                      role_id SMALLINT NOT NULL REFERENCES app_auth.roles(id) ON DELETE RESTRICT,
                                      assigned_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                      assigned_by UUID REFERENCES app_auth.users(id) ON DELETE SET NULL,
-                                     PRIMARY KEY (user_id, role_id)
+                                     CONSTRAINT uq_user_roles_user_role UNIQUE (user_id, role_id)
 );
 CREATE INDEX ix_user_roles_role ON app_auth.user_roles(role_id);
 CREATE TABLE app_auth.role_permissions (
+                                           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                            role_id SMALLINT NOT NULL REFERENCES app_auth.roles(id) ON DELETE CASCADE,
                                            permission_id SMALLINT NOT NULL REFERENCES app_auth.permissions(id) ON DELETE CASCADE,
                                            granted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                           PRIMARY KEY (role_id, permission_id)
+                                           CONSTRAINT uq_role_permissions_role_permission UNIQUE (role_id, permission_id)
 );
 CREATE INDEX ix_role_permissions_permission ON app_auth.role_permissions(permission_id);
 
@@ -84,8 +78,7 @@ CREATE TABLE app_auth.user_devices (
                                        last_active_at TIMESTAMPTZ,
                                        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                       CONSTRAINT uq_devices_user_installation UNIQUE(user_id, device_uuid),
-                                       CONSTRAINT uq_devices_id_user UNIQUE(id, user_id)
+                                       CONSTRAINT uq_devices_user_installation UNIQUE(user_id, device_uuid)
 );
 CREATE INDEX ix_devices_last_active ON app_auth.user_devices(last_active_at);
 
@@ -102,12 +95,10 @@ CREATE TABLE app_auth.refresh_tokens (
     ip_address INET,
     user_agent TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_refresh_device_owner FOREIGN KEY(device_id, user_id)
-        REFERENCES app_auth.user_devices(id, user_id) ON DELETE CASCADE,
-    CONSTRAINT uq_refresh_chain_identity UNIQUE(id, token_family_id, device_id, user_id),
-    CONSTRAINT fk_refresh_replacement FOREIGN KEY
-        (replaced_by_token_id, token_family_id, device_id, user_id)
-        REFERENCES app_auth.refresh_tokens(id, token_family_id, device_id, user_id)
+    CONSTRAINT fk_refresh_device FOREIGN KEY(device_id)
+        REFERENCES app_auth.user_devices(id) ON DELETE CASCADE,
+    CONSTRAINT fk_refresh_replacement FOREIGN KEY(replaced_by_token_id)
+        REFERENCES app_auth.refresh_tokens(id)
         DEFERRABLE INITIALLY DEFERRED,
     CONSTRAINT ck_refresh_expiry CHECK (expires_at > created_at),
     CONSTRAINT ck_refresh_reason CHECK (revoked_at IS NOT NULL OR revoke_reason IS NULL),
@@ -220,37 +211,3 @@ REVOKE ALL ON ALL TABLES IN SCHEMA app_auth FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA app_auth FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app_auth FROM PUBLIC;
 COMMIT;
-
--- BACKEND CONTRACT (constraints do not implement the authentication service):
--- 1. Store Argon2id/bcrypt password hashes; store SHA-256 hex of high-entropy
---    random action/refresh tokens. Never log raw tokens or passwords.
--- 2. Registration: insert user AND assign USER role in one transaction.
--- 3. Serialize token issuance/rotation/revocation on the owning users row
---    (SELECT ... FOR UPDATE), always in consistent order. Recheck status and
---    token state AFTER acquiring locks. Client must single-flight refresh.
--- 4. Rotation: lock user then old token; reject expired/revoked tokens. Reuse of
---    a replaced token revokes the whole family. For a valid token, revoke old,
---    insert new using SAME family/user/device, then link replaced_by_token_id.
---    Commit before returning tokens. New login always creates a fresh family.
--- 5. Action issuance: lock user, revoke outstanding same-purpose tokens (even
---    expired ones), then insert new token in the same transaction.
--- 6. Action consumption: lock user, UPDATE action_tokens SET consumed_at = now()
---    WHERE token_hash = :hash AND purpose = :expected_purpose
---      AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
---    RETURNING user_id; require exactly one row. Perform password/email change
---    in SAME transaction; rollback consumption if the business operation fails.
--- 7. Reset/logout-all/suspend: revoke sessions, invalidate applicable push
---    bindings and increment token_version atomically. API must validate current
---    user status, token_version AND an unrevoked/unexpired family for immediate
---    access-token revocation. JWT signature validation alone is insufficient.
--- 8. Keep replaced refresh-token history for reuse detection. Purge expired
---    families as a unit only after retention; self-FKs protect chain integrity.
--- 9. FCM update: revoke old registration before activating new in a transaction.
---    Account switching must detach the previous account's push binding. Registration
---    values/device UUIDs are not authentication credentials. Send only for active
---    accounts/devices with an eligible session; do not trust client user_id.
--- 10. App uses backend endpoints, NOT direct table access. Do not expose this
---     schema or ship DB/service credentials to mobile. No Supabase auth.uid()
---     integration is assumed. Configure a least-privilege backend role separately.
--- 11. Temporary lock expiry/unlock, rate limits, JWT signing/verification, audit
---     retention, permission checks, and email delivery are backend responsibilities.
