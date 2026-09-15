@@ -1,10 +1,6 @@
 package com.pawpasta.glowscan_be.implement;
 
-import com.pawpasta.glowscan_be.modal.dto.request.VerificationEmailRequest;
-import com.pawpasta.glowscan_be.modal.dto.request.LoginRequest;
-import com.pawpasta.glowscan_be.modal.dto.request.LogoutRequest;
-import com.pawpasta.glowscan_be.modal.dto.request.RefreshTokenRequest;
-import com.pawpasta.glowscan_be.modal.dto.request.RegisterRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.*;
 import com.pawpasta.glowscan_be.modal.dto.response.LoginResponse;
 import com.pawpasta.glowscan_be.modal.entity.ActionToken;
 import com.pawpasta.glowscan_be.modal.entity.Role;
@@ -17,7 +13,7 @@ import com.pawpasta.glowscan_be.repository.RoleRepository;
 import com.pawpasta.glowscan_be.repository.UserRepository;
 import com.pawpasta.glowscan_be.repository.UserRoleRepository;
 import com.pawpasta.glowscan_be.service.AuthService;
-import com.pawpasta.glowscan_be.util.EmailUtil;
+import com.pawpasta.glowscan_be.service.EmailService;
 import com.pawpasta.glowscan_be.util.OpaqueTokenUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -52,7 +48,7 @@ public class AuthServiceImplement implements AuthService {
     private final UserRoleRepository userRoleRepository;
     private final ActionTokenRepository actionTokenRepository;
     private final OpaqueTokenUtil opaqueTokenUtil;
-    private final EmailUtil emailUtil;
+    private final EmailService emailService;
 
     private void validatePassword(RegisterRequest registerRequest) {
 
@@ -72,11 +68,18 @@ public class AuthServiceImplement implements AuthService {
         return BCrypt.hashpw(password, BCrypt.gensalt());
     }
 
-    private void scheduleVerificationEmailAfterCommit(VerificationEmailRequest emailRequest) {
+    private String normalizeEmail(String email) {
+        if (email == null || email.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email cannot be empty");
+        }
+
+        return email.trim().toLowerCase(Locale.ROOT);
+    }
+    private void scheduleVerificationEmailAfterCommit(EmailContentRequest emailRequest) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                emailUtil.sendVerificationEmail(emailRequest);
+                emailService.sendActionEmail(emailRequest);
             }
         });
     }
@@ -124,19 +127,50 @@ public class AuthServiceImplement implements AuthService {
         verificationToken.setExpiresAt(OffsetDateTime.now(ZoneOffset.UTC).plus(verifyEmailTokenTtl));
         actionTokenRepository.save(verificationToken);
 
-        scheduleVerificationEmailAfterCommit(new VerificationEmailRequest(
-                user.getEmail(), user.getFullName(), rawToken));
+        scheduleVerificationEmailAfterCommit(new EmailContentRequest(
+                user.getEmail(), user.getFullName(), rawToken, ActionTokenPurpose.VERIFY_EMAIL
+        ));
 
         return "Registration successful";
     }
 
-    private String normalizeEmail(String email) {
-        if (email == null || email.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email cannot be empty");
+    @Override
+    @Transactional
+    public String verifyEmailToken(VerificationEmailRequest verificationEmailRequest) {
+        String email = normalizeEmail(verificationEmailRequest.getEmail());
+        String tokenHash = opaqueTokenUtil.hashToken(verificationEmailRequest.getRawToken());
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        ActionToken verificationToken = actionTokenRepository
+                .findPendingByUserEmailAndTokenHashAndPurpose(
+                        email,
+                        tokenHash,
+                        ActionTokenPurpose.VERIFY_EMAIL
+                )
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Verification link is invalid or expired"
+                ));
+
+        if (verificationToken.getExpiresAt() == null || !verificationToken.getExpiresAt().isAfter(now)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Verification link is invalid or expired");
         }
 
-        return email.trim().toLowerCase(Locale.ROOT);
+        User user = verificationToken.getUser();
+        if (user.getStatus() != UserStatus.PENDING_VERIFICATION) {
+            throw new  ResponseStatusException(HttpStatus.CONFLICT, "User Are Not In Pending Status");
+        }
+
+        user.setStatus(UserStatus.ACTIVE);
+        user.setEmailVerifiedAt(now);
+        verificationToken.setConsumedAt(now);
+
+        userRepository.save(user);
+        actionTokenRepository.save(verificationToken);
+
+        return "Email verified successfully";
     }
+
 
     @Override
     public LoginResponse login(LoginRequest loginRequest) {

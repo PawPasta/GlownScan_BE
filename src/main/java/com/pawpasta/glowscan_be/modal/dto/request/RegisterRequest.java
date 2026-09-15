@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class RegisterRequest {
     @NotBlank(message = "Email cannot be empty")
-    @Email(message = "Email Is Not Verified ")
+    @Email(message = "Email Format Incorrect ")
     private String email;
 
     @NotBlank(message = "Password cannot be empty")

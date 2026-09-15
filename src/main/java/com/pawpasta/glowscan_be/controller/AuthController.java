@@ -1,6 +1,7 @@
 package com.pawpasta.glowscan_be.controller;
 
 import com.pawpasta.glowscan_be.modal.dto.request.RegisterRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.VerificationEmailRequest;
 import com.pawpasta.glowscan_be.service.AuthService;
 import com.pawpasta.glowscan_be.util.ResponseUtil;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,6 +32,16 @@ public class AuthController {
     @ResponseStatus(HttpStatus.CREATED)
     public ResponseUtil<Void> register(@Valid @RequestBody RegisterRequest registerRequest) {
         String message = authService.register(registerRequest);
+        return ResponseUtil.success(message);
+    }
+
+    @PostMapping(value = "/verify-token",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    @Operation(summary = "Verify an email address", description = "Activates a pending account with a valid verification token.")
+    public ResponseUtil<Void> verifyEmailToken(@Valid @RequestBody VerificationEmailRequest verificationEmailRequest) {
+        String message = authService.verifyEmailToken(verificationEmailRequest);
         return ResponseUtil.success(message);
     }
 
