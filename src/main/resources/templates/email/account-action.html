@@ -1,13 +1,13 @@
-    <!doctype html>
-<html lang="en">
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="x-apple-disable-message-reformatting">
-    <title>{{title}}</title>
+    <title th:text="${title}">GlowScan</title>
 </head>
 <body style="margin:0; padding:0; background-color:#fff1f7; color:#4a1230; font-family:Arial, Helvetica, sans-serif;">
-<span style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">{{preheader}}</span>
+<span style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;" th:text="${preheader}">GlowScan account action</span>
 
 <table role="presentation" style="width:100%; border-collapse:collapse; border-spacing:0; background-color:#fff1f7;">
     <tr>
@@ -22,32 +22,32 @@
                 </tr>
                 <tr>
                     <td style="padding:40px;">
-                        <h1 style="margin:0 0 20px; color:#4a1230; font-size:26px; line-height:1.3; font-weight:700;">{{heading}}</h1>
-                        <p style="margin:0 0 16px; color:#6d3550; font-size:16px; line-height:1.65;">{{greeting}}</p>
-                        <p style="margin:0 0 28px; color:#6d3550; font-size:16px; line-height:1.65;">{{message}}</p>
+                        <h1 style="margin:0 0 20px; color:#4a1230; font-size:26px; line-height:1.3; font-weight:700;" th:text="${heading}">Account action</h1>
+                        <p style="margin:0 0 16px; color:#6d3550; font-size:16px; line-height:1.65;" th:text="${greeting}">Hi there,</p>
+                        <p style="margin:0 0 28px; color:#6d3550; font-size:16px; line-height:1.65;" th:text="${message}">Please complete the requested action.</p>
 
                         <table role="presentation" style="border-collapse:collapse; border-spacing:0;">
                             <tr>
                                 <td style="border-radius:10px; background-color:#db2777; text-align:center;">
-                                    <a href="{{action_url}}" target="_blank"
-                                       style="display:inline-block; padding:14px 24px; color:#ffffff; font-size:16px; font-weight:700; line-height:1; text-decoration:none;">{{action_label}}</a>
+                                    <a href="#" th:href="${actionUrl}" target="_blank"
+                                       style="display:inline-block; padding:14px 24px; color:#ffffff; font-size:16px; font-weight:700; line-height:1; text-decoration:none;" th:text="${actionLabel}">Continue</a>
                                 </td>
                             </tr>
                         </table>
 
                         <p style="margin:30px 0 8px; color:#8b5b70; font-size:13px; line-height:1.55;">If the button does not work, copy this link into your browser:</p>
                         <p style="margin:0; overflow-wrap:anywhere; word-break:break-word;">
-                            <a href="{{action_url}}" target="_blank" style="color:#c2185b; font-size:13px; line-height:1.55; text-decoration:underline;">{{action_url}}</a>
+                            <a href="#" th:href="${actionUrl}" target="_blank" style="color:#c2185b; font-size:13px; line-height:1.55; text-decoration:underline;" th:text="${actionUrl}">https://example.com</a>
                         </p>
 
                         <div style="margin:32px 0 0; padding:16px 18px; background-color:#fce7f3; border-radius:10px; color:#8f2c5b; font-size:13px; line-height:1.55;">
-                            {{security_note}}
+                            <span th:text="${securityNote}">For your security, only use this email if you requested it.</span>
                         </div>
                     </td>
                 </tr>
                 <tr>
                     <td style="padding:22px 40px; border-top:1px solid #f8d6e7; color:#a36d85; font-size:12px; line-height:1.5; text-align:center;">
-                        {{footer_note}}
+                        <span th:text="${footerNote}">GlowScan · Your personal skin companion</span>
                     </td>
                 </tr>
             </table>
