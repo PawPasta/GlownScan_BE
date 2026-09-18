@@ -17,7 +17,7 @@ import java.util.Objects;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class EmailServiceImplement implements EmailService {
+public class EmailServiceImpl implements EmailService {
     
     private static final String ACTION_TEMPLATE = "email/account-action";
     private static final String FOOTER_NOTE = "GlowScan · Your personal skin companion";

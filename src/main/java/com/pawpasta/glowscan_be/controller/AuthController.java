@@ -1,7 +1,9 @@
 package com.pawpasta.glowscan_be.controller;
 
+import com.pawpasta.glowscan_be.modal.dto.request.LoginRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.RegisterRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.VerificationEmailRequest;
+import com.pawpasta.glowscan_be.modal.dto.response.LoginResponse;
 import com.pawpasta.glowscan_be.service.AuthService;
 import com.pawpasta.glowscan_be.util.ResponseUtil;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,7 +37,7 @@ public class AuthController {
         return ResponseUtil.success(message);
     }
 
-    @PostMapping(value = "/verify-token",
+    @PostMapping(value = "/verify-email-token",
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
     )
@@ -43,6 +45,15 @@ public class AuthController {
     public ResponseUtil<Void> verifyEmailToken(@Valid @RequestBody VerificationEmailRequest verificationEmailRequest) {
         String message = authService.verifyEmailToken(verificationEmailRequest);
         return ResponseUtil.success(message);
+    }
+
+    @PostMapping(value = "/login",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    @Operation(summary = "Log in", description = "Validates credentials, records the device, and returns access and refresh tokens.")
+    public ResponseUtil<LoginResponse> login(@Valid @RequestBody LoginRequest loginRequest) {
+        return ResponseUtil.success("Login successful", authService.login(loginRequest));
     }
 
 }
