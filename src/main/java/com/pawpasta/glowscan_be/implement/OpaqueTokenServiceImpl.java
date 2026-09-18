@@ -1,7 +1,8 @@
-package com.pawpasta.glowscan_be.util;
+package com.pawpasta.glowscan_be.implement;
 
 
-import org.springframework.stereotype.Component;
+import com.pawpasta.glowscan_be.service.OpaqueTokenService;
+import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
@@ -10,18 +11,18 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.HexFormat;
 
-@Component
-public class OpaqueTokenUtil {
-
+@Service
+public class OpaqueTokenServiceImpl implements OpaqueTokenService {
     private final SecureRandom secureRandom = new SecureRandom();
 
+    @Override
     public String generateToken() {
         byte[] bytes = new byte[32];
         secureRandom.nextBytes(bytes);
-
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
+    @Override
     public String hashToken(String rawToken) {
         try {
             byte[] bytes = MessageDigest.getInstance("SHA-256")
