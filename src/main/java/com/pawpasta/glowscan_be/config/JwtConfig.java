@@ -2,6 +2,8 @@ package com.pawpasta.glowscan_be.config;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.nimbusds.jose.proc.SecurityContext;
+import com.pawpasta.glowscan_be.modal.entity.enums.UserStatus;
+import com.pawpasta.glowscan_be.repository.UserRepository;
 import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -18,6 +20,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Objects;
+import java.util.UUID;
 
 
 @Configuration
@@ -68,7 +71,7 @@ public class JwtConfig {
 
     @Bean
     @Primary
-    public JwtDecoder jwtDecoder(SecretKey secretKey) {
+    public JwtDecoder jwtDecoder(SecretKey secretKey, UserRepository userRepository) {
 
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(secretKey)
                 .macAlgorithm(MacAlgorithm.HS256).build();
@@ -89,11 +92,48 @@ public class JwtConfig {
         decoder.setJwtValidator(
                 new DelegatingOAuth2TokenValidator<>(
                         JwtValidators.createDefaultWithIssuer(issuer),
-                        audienceValidator
+                        audienceValidator,
+                        tokenVersionValidator(userRepository)
                 )
         );
 
         return decoder;
+    }
+
+    private OAuth2TokenValidator<Jwt> tokenVersionValidator(UserRepository userRepository) {
+        return jwt -> {
+            String userIdClaim = jwt.getClaimAsString("uid");
+            Object tokenVersionClaim = jwt.getClaim("token_version");
+
+            if (userIdClaim == null || userIdClaim.isBlank() || !(tokenVersionClaim instanceof Number version)) {
+                return invalidTokenVersionResult();
+            }
+
+            try {
+                int tokenVersion = version.intValue();
+                if (tokenVersion < 1) {
+                    return invalidTokenVersionResult();
+                }
+
+                boolean tokenIsCurrent = userRepository.findById(UUID.fromString(userIdClaim))
+                        .filter(user -> user.getDeletedAt() == null)
+                        .filter(user -> user.getStatus() == UserStatus.ACTIVE)
+                        .map(user -> user.getTokenVersion() != null && user.getTokenVersion() == tokenVersion)
+                        .orElse(false);
+
+                return tokenIsCurrent
+                        ? OAuth2TokenValidatorResult.success()
+                        : invalidTokenVersionResult();
+            } catch (IllegalArgumentException exception) {
+                return invalidTokenVersionResult();
+            }
+        };
+    }
+
+    private OAuth2TokenValidatorResult invalidTokenVersionResult() {
+        return OAuth2TokenValidatorResult.failure(
+                new OAuth2Error("invalid_token", "Token is no longer valid", null)
+        );
     }
 
     @Bean

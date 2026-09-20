@@ -40,7 +40,9 @@ public class SecurityConfig {
                                 "/api/auth/login",
                                 "/api/auth/verify-email-token",
                                 "/api/auth/logout",
-                                "/api/auth/refresh-token"
+                                "/api/auth/refresh-token",
+                                "/api/auth/reset-password",
+                                "/api/auth/verify-reset-password-token"
                         ).permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())

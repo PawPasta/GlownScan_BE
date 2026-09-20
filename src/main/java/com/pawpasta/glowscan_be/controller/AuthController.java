@@ -1,10 +1,13 @@
 package com.pawpasta.glowscan_be.controller;
 
+import com.pawpasta.glowscan_be.modal.dto.request.ChangePasswordRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.LoginRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.LogoutRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.RefreshTokenRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.RegisterRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.ResetPasswordRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.VerificationEmailRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.VerifyResetPasswordRequest;
 import com.pawpasta.glowscan_be.modal.dto.response.LoginResponse;
 import com.pawpasta.glowscan_be.service.AuthService;
 import com.pawpasta.glowscan_be.util.ResponseUtil;
@@ -74,6 +77,37 @@ public class AuthController {
     @Operation(summary = "Refresh tokens", description = "Rotates a valid access and refresh token pair.")
     public ResponseUtil<LoginResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest refreshTokenRequest) {
         return ResponseUtil.success("Tokens refreshed successfully", authService.refreshToken(refreshTokenRequest));
+    }
+
+    @PostMapping(value = "/reset-password",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    @Operation(summary = "Request a password reset", description = "Sends a reset link for an existing active account.")
+    public ResponseUtil<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest resetPasswordRequest) {
+        return ResponseUtil.success(authService.resetPassword(resetPasswordRequest));
+    }
+
+    @PostMapping(value = "/verify-reset-password-token",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    @Operation(summary = "Reset a password", description = "Consumes a valid reset token and sets the new password.")
+    public ResponseUtil<Void> resetPassword(
+            @Valid @RequestBody VerifyResetPasswordRequest verifyResetPasswordRequest
+    ) {
+        return ResponseUtil.success(authService.resetPassword(verifyResetPasswordRequest));
+    }
+
+    @PostMapping(value = "/change-password",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    @Operation(summary = "Change the current password", description = "Requires an authenticated user and the current password.")
+    public ResponseUtil<Void> changePassword(
+            @Valid @RequestBody ChangePasswordRequest changePasswordRequest
+    ) {
+        return ResponseUtil.success(authService.changePassword(changePasswordRequest));
     }
 
 }

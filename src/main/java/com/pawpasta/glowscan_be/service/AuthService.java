@@ -11,9 +11,6 @@ public interface AuthService {
      String logout(LogoutRequest logoutRequest);
      LoginResponse refreshToken(RefreshTokenRequest refreshTokenRequest);
      String resetPassword(ResetPasswordRequest resetPasswordRequest);
-     String verifyResetPasswordToken(VerifyResetPasswordRequest verifyResetPasswordRequest);
+     String resetPassword(VerifyResetPasswordRequest verifyResetPasswordRequest);
      String changePassword(ChangePasswordRequest changePasswordRequest);
-
-
-
 }

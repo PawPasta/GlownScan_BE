@@ -27,6 +27,9 @@ public class EmailServiceImpl implements EmailService {
     @Value("${app.links.verify-email}")
     String verificationEmailBaseUrl;
 
+    @Value("${app.links.reset-password}")
+    String resetPasswordBaseUrl;
+
     private record ActionEmail(
             String subject,
             String preheader,
@@ -51,10 +54,22 @@ public class EmailServiceImpl implements EmailService {
     private record EmailContent(String subject, String html) {
     }
 
-    private String buildVerificationUrl(EmailContentRequest emailRequest) {
-        return UriComponentsBuilder.fromUriString(verificationEmailBaseUrl)
+    private String buildActionUrl(EmailContentRequest emailRequest) {
+        ActionTokenPurpose purpose = Objects.requireNonNull(
+                emailRequest.getActionTokenPurpose(),
+                "Action token purpose is required"
+        );
+        String actionUrlBase = switch (purpose) {
+            case VERIFY_EMAIL -> verificationEmailBaseUrl;
+            case RESET_PASSWORD -> resetPasswordBaseUrl;
+        };
+        String tokenParameter = purpose == ActionTokenPurpose.RESET_PASSWORD
+                ? "resetPasswordToken"
+                : "rawToken";
+
+        return UriComponentsBuilder.fromUriString(requireActionUrl(actionUrlBase))
                 .queryParam("email", emailRequest.getRecipientEmail())
-                .queryParam("rawToken", emailRequest.getRawToken())
+                .queryParam(tokenParameter, emailRequest.getRawToken())
                 .build()
                 .encode()
                 .toUriString();
@@ -63,11 +78,11 @@ public class EmailServiceImpl implements EmailService {
     @Override
     public void sendActionEmail(EmailContentRequest emailRequest) {
         try {
-            String verificationUrl = buildVerificationUrl(emailRequest);
+            String actionUrl = buildActionUrl(emailRequest);
             EmailContent email = createActionEmail(
                     emailRequest.getActionTokenPurpose(),
                     emailRequest.getRecipientName(),
-                    verificationUrl
+                    actionUrl
             );
             emailUtil.sendHtmlEmail(
                     emailRequest.getRecipientEmail(),
@@ -75,7 +90,8 @@ public class EmailServiceImpl implements EmailService {
                     email.html()
             );
         } catch (MessagingException | RuntimeException exception) {
-            log.error("Unable to send verification email for {}", emailRequest.getRecipientEmail(), exception);
+            String recipient = emailRequest == null ? "unknown recipient" : emailRequest.getRecipientEmail();
+            log.error("Unable to send account action email for {}", recipient, exception);
         }
     }
 

@@ -1,6 +1,15 @@
 package com.pawpasta.glowscan_be.implement;
 
-import com.pawpasta.glowscan_be.modal.dto.request.*;
+import com.pawpasta.glowscan_be.handler.AuthExceptionHandler;
+import com.pawpasta.glowscan_be.modal.dto.request.ChangePasswordRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.EmailContentRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.LoginRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.LogoutRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.RefreshTokenRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.RegisterRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.ResetPasswordRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.VerificationEmailRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.VerifyResetPasswordRequest;
 import com.pawpasta.glowscan_be.modal.dto.response.LoginResponse;
 import com.pawpasta.glowscan_be.modal.entity.ActionToken;
 import com.pawpasta.glowscan_be.modal.entity.RefreshToken;
@@ -19,9 +28,9 @@ import com.pawpasta.glowscan_be.repository.UserRoleRepository;
 import com.pawpasta.glowscan_be.service.AuthService;
 import com.pawpasta.glowscan_be.service.EmailService;
 import com.pawpasta.glowscan_be.service.TokenService;
+import com.pawpasta.glowscan_be.util.SecurityUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCrypt;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtException;
@@ -36,28 +45,39 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.function.Supplier;
+
+import static com.pawpasta.glowscan_be.handler.AuthExceptionHandler.*;
 
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
+    private static final String DEFAULT_ROLE_CODE = "USER";
+    private static final String PASSWORD_REGEX = "^(?=.*[A-Z])(?=.*[\\p{P}\\p{S}]).{6,12}$";
+    private static final String REGISTRATION_SUCCESS_MESSAGE = "Registration successful";
+    private static final String EMAIL_VERIFIED_SUCCESS_MESSAGE = "Email verified successfully";
+    private static final String LOGOUT_SUCCESS_MESSAGE = "Logged out successfully";
+    private static final String PASSWORD_RESET_LINK_SENT_MESSAGE = "Password reset link has been sent.";
+    private static final String PASSWORD_RESET_SUCCESS_MESSAGE = "Password reset successfully";
+    private static final String PASSWORD_CHANGED_SUCCESS_MESSAGE = "Password changed successfully";
+    private static final String PASSWORD_RESET_REVOKE_REASON = "PASSWORD_RESET";
+    private static final String PASSWORD_CHANGED_REVOKE_REASON = "PASSWORD_CHANGED";
+
     @Value("${app.max.failed.login}")
-    private int MAX_FAILED_LOGIN_ATTEMPTS;
+    private int maxFailedLoginAttempts;
 
     @Value("${app.login.lock}")
-    private Duration LOGIN_LOCK_DURATION;
-
-    //Các Tài Khoản khi tạo ở Register Mặc Định Là USER
-    private static final String DEFAULT_ROLE_CODE = "USER";
-
-    //Này là Logic Nghiệp Vụ Của Mật Khẩu khi khởi tạo, yêu cầu đầy đủ 6 - 12 kí tự, có kí tự hoa Và Đặc Biệt
-    private static final String PASSWORD_REGEX = "^(?=.*[A-Z])(?=.*[\\p{P}\\p{S}]).{6,12}$";
+    private Duration loginLockDuration;
 
     @Value("${app.tokens.verify-email-ttl}")
-    Duration verifyEmailTokenTtl;
+    private Duration verifyEmailTokenTtl;
+
+    @Value("${app.tokens.reset-password-ttl}")
+    private Duration resetPasswordTokenTtl;
 
     @Value("${app.tokens.refresh-token-ttl}")
-    Duration refreshTokenTtl;
+    private Duration refreshTokenTtl;
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
@@ -67,28 +87,72 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final TokenService tokenService;
     private final EmailService emailService;
+    private final SecurityUtil securityUtil;
 
     private String normalizeEmail(String email) {
         if (email == null || email.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email cannot be empty");
+            throw emailCannotBeEmpty();
         }
 
-        return email.trim().toLowerCase(Locale.ROOT);
+        return email.strip().toLowerCase(Locale.ROOT);
+    }
+
+    private void validateNewPassword(String password, String confirmPassword) {
+        if (password == null || !password.matches(PASSWORD_REGEX)) {
+            throw passwordPolicyInvalid();
+        }
+
+        if (!password.equals(confirmPassword)) {
+            throw passwordConfirmationDoesNotMatch();
+        }
+    }
+
+    private boolean passwordMatches(String rawPassword, String passwordHash) {
+        try {
+            return rawPassword != null && passwordHash != null && BCrypt.checkpw(rawPassword, passwordHash);
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+    }
+
+    private boolean isActiveAccount(User user) {
+        return user != null
+                && user.getDeletedAt() == null
+                && user.getStatus() == UserStatus.ACTIVE;
+    }
+
+    private void requireActiveAccount(User user, Supplier<ResponseStatusException> exceptionSupplier) {
+        if (!isActiveAccount(user)) {
+            throw exceptionSupplier.get();
+        }
+    }
+
+    private void incrementTokenVersion(User user) {
+        int currentVersion = user.getTokenVersion() == null ? 1 : user.getTokenVersion();
+        user.setTokenVersion(Math.max(1, currentVersion) + 1);
+    }
+
+    private void resetLoginFailureState(User user) {
+        user.setFailedLoginCount(0);
+        user.setLockedUntil(null);
     }
 
     private void verifyAccountCanLogin(User user, OffsetDateTime now) {
+        if (user == null || user.getDeletedAt() != null) {
+            throw accountCannotLogIn();
+        }
+
         if (user.getStatus() == UserStatus.LOCKED) {
             if (user.getLockedUntil() != null && !user.getLockedUntil().isAfter(now)) {
                 user.setStatus(UserStatus.ACTIVE);
-                user.setLockedUntil(null);
-                user.setFailedLoginCount(0);
+                resetLoginFailureState(user);
             } else {
-                throw new ResponseStatusException(HttpStatus.LOCKED, "Account is temporarily locked");
+                throw accountTemporarilyLocked();
             }
         }
 
         if (user.getStatus() != UserStatus.ACTIVE) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is not allowed to log in");
+            throw accountCannotLogIn();
         }
     }
 
@@ -96,22 +160,20 @@ public class AuthServiceImpl implements AuthService {
         int failedAttempts = (user.getFailedLoginCount() == null ? 0 : user.getFailedLoginCount()) + 1;
         user.setFailedLoginCount(failedAttempts);
 
-        if (failedAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+        if (failedAttempts >= maxFailedLoginAttempts) {
             user.setStatus(UserStatus.LOCKED);
-            user.setLockedUntil(now.plus(LOGIN_LOCK_DURATION));
+            user.setLockedUntil(now.plus(loginLockDuration));
         }
     }
 
     private UserDevice saveUserDevice(User user, LoginRequest loginRequest, OffsetDateTime now) {
-
-        if ( loginRequest.getDeviceUuid() == null || loginRequest.getDeviceUuid().isBlank() ||
-                loginRequest.getDeviceName() == null || loginRequest.getDeviceName().isBlank()
-        ) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,  "Device Information is required");
+        if (loginRequest.getDeviceUuid() == null || loginRequest.getDeviceUuid().isBlank()
+                || loginRequest.getDeviceName() == null || loginRequest.getDeviceName().isBlank()) {
+            throw deviceInformationRequired();
         }
 
         if (loginRequest.getPlatform() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Device platform is required");
+            throw devicePlatformRequired();
         }
 
         UserDevice device = userDeviceRepository.findByUserAndDeviceUuid(user, loginRequest.getDeviceUuid())
@@ -125,18 +187,82 @@ public class AuthServiceImpl implements AuthService {
         return userDeviceRepository.save(device);
     }
 
-    private void createVerificationToken(User user) {
+    private void createAndScheduleActionToken(
+            User user,
+            ActionTokenPurpose purpose,
+            Duration tokenTtl,
+            OffsetDateTime now
+    ) {
         String rawToken = tokenService.generateActionToken();
-        ActionToken verificationToken = new ActionToken();
-        verificationToken.setUser(user);
-        verificationToken.setPurpose(ActionTokenPurpose.VERIFY_EMAIL);
-        verificationToken.setTokenHash(tokenService.hashActionToken(rawToken));
-        verificationToken.setExpiresAt(OffsetDateTime.now(ZoneOffset.UTC).plus(verifyEmailTokenTtl));
-        actionTokenRepository.save(verificationToken);
+        ActionToken actionToken = new ActionToken();
+        actionToken.setUser(user);
+        actionToken.setPurpose(purpose);
+        actionToken.setTokenHash(tokenService.hashActionToken(rawToken));
+        actionToken.setExpiresAt(now.plus(tokenTtl));
+        actionTokenRepository.save(actionToken);
 
         scheduleEmailAfterCommit(new EmailContentRequest(
-                user.getEmail(), user.getFullName(), rawToken, ActionTokenPurpose.VERIFY_EMAIL
+                user.getEmail(), user.getFullName(), rawToken, purpose
         ));
+    }
+
+    private ActionToken findValidActionToken(
+            String email,
+            String rawToken,
+            ActionTokenPurpose purpose,
+            OffsetDateTime now,
+            Supplier<ResponseStatusException> invalidTokenException
+    ) {
+        if (rawToken == null || rawToken.isBlank()) {
+            throw invalidTokenException.get();
+        }
+
+        ActionToken actionToken = actionTokenRepository
+                .findPendingByUserEmailAndTokenHashAndPurpose(
+                        email,
+                        tokenService.hashActionToken(rawToken.strip()),
+                        purpose
+                )
+                .orElseThrow(invalidTokenException);
+
+        if (actionToken.getExpiresAt() == null || !actionToken.getExpiresAt().isAfter(now)) {
+            throw invalidTokenException.get();
+        }
+
+        return actionToken;
+    }
+
+    private User findLockedUserByEmail(String email) {
+        User user = userRepository.findByEmailAndDeletedAtIsNull(email)
+                .orElseThrow(AuthExceptionHandler::emailNotFound);
+
+        if (user.getId() == null) {
+            throw emailNotFound();
+        }
+
+        return userRepository.findByIdForUpdate(user.getId())
+                .orElseThrow(AuthExceptionHandler::emailNotFound);
+    }
+
+    private User findLockedActionTokenUser(ActionToken actionToken) {
+        if (actionToken.getUser() == null || actionToken.getUser().getId() == null) {
+            throw passwordResetLinkInvalidOrExpired();
+        }
+
+        return userRepository.findByIdForUpdate(actionToken.getUser().getId())
+                .orElseThrow(AuthExceptionHandler::passwordResetLinkInvalidOrExpired);
+    }
+
+    private void updatePasswordAndRevokeSessions(
+            User user,
+            String rawNewPassword,
+            OffsetDateTime now,
+            String revokeReason
+    ) {
+        user.setPasswordHash(BCrypt.hashpw(rawNewPassword, BCrypt.gensalt()));
+        incrementTokenVersion(user);
+        userRepository.save(user);
+        refreshTokenRepository.revokeActiveTokensByUserId(user.getId(), now, revokeReason);
     }
 
     private void scheduleEmailAfterCommit(EmailContentRequest emailRequest) {
@@ -151,122 +277,95 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public String register(RegisterRequest registerRequest) {
-
         if (registerRequest == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Register request is required");
+            throw registerRequestRequired();
         }
 
-        if (registerRequest.getPassword() == null || !registerRequest.getPassword().matches(PASSWORD_REGEX)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Password must be 6–12 characters long and include " +
-                            "at least one uppercase letter and one special character.");
-        }
-
-        if (!registerRequest.getPassword().equals(registerRequest.getConfirmPassword())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Password confirmation does not match");
-        }
+        validateNewPassword(registerRequest.getPassword(), registerRequest.getConfirmPassword());
 
         String email = normalizeEmail(registerRequest.getEmail());
-        if (userRepository.existsByEmailAndDeletedAtIsNull(email))
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists");
+        if (userRepository.existsByEmailAndDeletedAtIsNull(email)) {
+            throw emailAlreadyExists();
+        }
 
         Role defaultRole = roleRepository.findByCode(DEFAULT_ROLE_CODE)
-                .orElseThrow(() -> new IllegalStateException("Default USER role is not configured"));
+                .orElseThrow(AuthExceptionHandler::defaultUserRoleNotConfigured);
 
         User user = new User();
-
         user.setEmail(email);
         user.setFullName(registerRequest.getFullName());
         user.setPasswordHash(BCrypt.hashpw(registerRequest.getPassword(), BCrypt.gensalt()));
         user.setStatus(UserStatus.PENDING_VERIFICATION);
         user.setTokenVersion(1);
         user.setFailedLoginCount(0);
-
         userRepository.save(user);
 
         UserRole userRole = new UserRole();
-
         userRole.setUser(user);
         userRole.setRole(defaultRole);
-
         userRoleRepository.save(userRole);
 
-        createVerificationToken(user);
+        createAndScheduleActionToken(
+                user,
+                ActionTokenPurpose.VERIFY_EMAIL,
+                verifyEmailTokenTtl,
+                OffsetDateTime.now(ZoneOffset.UTC)
+        );
 
-        return "Registration successful";
+        return REGISTRATION_SUCCESS_MESSAGE;
     }
 
     @Override
     @Transactional
     public String verifyEmailToken(VerificationEmailRequest verificationEmailRequest) {
-        String email = normalizeEmail(verificationEmailRequest.getEmail());
-        String tokenHash = tokenService.hashActionToken(verificationEmailRequest.getRawToken());
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-
-        ActionToken verificationToken = actionTokenRepository
-                .findPendingByUserEmailAndTokenHashAndPurpose(
-                        email,
-                        tokenHash,
-                        ActionTokenPurpose.VERIFY_EMAIL
-                )
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "Verification link is invalid or expired"
-                ));
-
-        if (verificationToken.getExpiresAt() == null || !verificationToken.getExpiresAt().isAfter(now)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Verification link is invalid or expired");
+        if (verificationEmailRequest == null) {
+            throw verificationEmailRequestRequired();
         }
 
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        ActionToken verificationToken = findValidActionToken(
+                normalizeEmail(verificationEmailRequest.getEmail()),
+                verificationEmailRequest.getRawToken(),
+                ActionTokenPurpose.VERIFY_EMAIL,
+                now,
+                AuthExceptionHandler::verificationLinkInvalidOrExpired
+        );
+
         User user = verificationToken.getUser();
-        if (user.getStatus() != UserStatus.PENDING_VERIFICATION) {
-            throw new  ResponseStatusException(HttpStatus.CONFLICT, "User Are Not In Pending Status");
+        if (user == null || user.getStatus() != UserStatus.PENDING_VERIFICATION) {
+            throw userNotPendingVerification();
         }
 
         user.setStatus(UserStatus.ACTIVE);
         user.setEmailVerifiedAt(now);
         verificationToken.setConsumedAt(now);
-
         userRepository.save(user);
         actionTokenRepository.save(verificationToken);
 
-        return "Email verified successfully";
+        return EMAIL_VERIFIED_SUCCESS_MESSAGE;
     }
-
 
     @Override
     @Transactional(noRollbackFor = ResponseStatusException.class)
     public LoginResponse login(LoginRequest loginRequest) {
-        if (loginRequest.getEmail() == null || loginRequest.getPassword() == null || loginRequest.getPassword().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email and password are required");
+        if (loginRequest == null || loginRequest.getEmail() == null || loginRequest.getEmail().isBlank()
+                || loginRequest.getPassword() == null || loginRequest.getPassword().isBlank()) {
+            throw emailAndPasswordRequired();
         }
 
         User user = userRepository.findByEmailAndDeletedAtIsNull(normalizeEmail(loginRequest.getEmail()))
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.UNAUTHORIZED,
-                        "Invalid Email Or Password, Try Again"
-                ));
+                .orElseThrow(AuthExceptionHandler::invalidCredentials);
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         verifyAccountCanLogin(user, now);
 
-        boolean passwordMatches;
-        try {
-            passwordMatches = user.getPasswordHash() != null
-                    && BCrypt.checkpw(loginRequest.getPassword(), user.getPasswordHash());
-        } catch (IllegalArgumentException exception) {
-            passwordMatches = false;
-        }
-
-        if (!passwordMatches) {
+        if (!passwordMatches(loginRequest.getPassword(), user.getPasswordHash())) {
             recordFailedLogin(user, now);
             userRepository.save(user);
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Email Or Password, Try Again");
+            throw invalidCredentials();
         }
 
-        user.setFailedLoginCount(0);
-        user.setLockedUntil(null);
+        resetLoginFailureState(user);
         user.setLastLoginAt(now);
         userRepository.save(user);
 
@@ -289,14 +388,14 @@ public class AuthServiceImpl implements AuthService {
     public String logout(LogoutRequest logoutRequest) {
         if (logoutRequest == null || logoutRequest.getAccessToken() == null
                 || logoutRequest.getAccessToken().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Access token is required");
+            throw accessTokenRequired();
         }
 
         try {
             Jwt jwt = tokenService.decodeJWTToken(logoutRequest.getAccessToken().strip());
             String userIdClaim = jwt.getClaimAsString("uid");
             if (userIdClaim == null || userIdClaim.isBlank()) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Access token is invalid or expired");
+                throw accessTokenInvalidOrExpired();
             }
 
             refreshTokenRepository.revokeActiveTokensByUserId(
@@ -305,10 +404,10 @@ public class AuthServiceImpl implements AuthService {
                     "LOGOUT"
             );
         } catch (JwtException | IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Access token is invalid or expired");
+            throw accessTokenInvalidOrExpired();
         }
 
-        return "Logged out successfully";
+        return LOGOUT_SUCCESS_MESSAGE;
     }
 
     @Override
@@ -318,32 +417,29 @@ public class AuthServiceImpl implements AuthService {
                 || refreshTokenRequest.getAccessToken().isBlank()
                 || refreshTokenRequest.getRefreshToken() == null
                 || refreshTokenRequest.getRefreshToken().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Access token and refresh token are required");
+            throw accessAndRefreshTokenRequired();
         }
 
         try {
             Jwt jwt = tokenService.decodeJWTTokenForRefresh(refreshTokenRequest.getAccessToken().strip());
             String userIdClaim = jwt.getClaimAsString("uid");
             if (userIdClaim == null || userIdClaim.isBlank()) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Access token is invalid or expired");
+                throw accessTokenInvalidOrExpired();
             }
         } catch (JwtException | IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Access token is invalid or expired");
+            throw accessTokenInvalidOrExpired();
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         RefreshToken currentRefreshToken = refreshTokenRepository
                 .findByTokenHash(tokenService.hashActionToken(refreshTokenRequest.getRefreshToken().strip()))
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.UNAUTHORIZED,
-                        "Refresh token is invalid or expired"
-                ));
+                .orElseThrow(AuthExceptionHandler::refreshTokenInvalidOrExpired);
 
         if (currentRefreshToken.getUser() == null || currentRefreshToken.getUser().getId() == null
                 || currentRefreshToken.getTokenFamilyId() == null
                 || currentRefreshToken.getExpiresAt() == null
                 || !currentRefreshToken.getExpiresAt().isAfter(now)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token is invalid or expired");
+            throw refreshTokenInvalidOrExpired();
         }
 
         if (currentRefreshToken.getRevokedAt() != null) {
@@ -352,7 +448,7 @@ public class AuthServiceImpl implements AuthService {
                     now,
                     "REFRESH_TOKEN_REUSE"
             );
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token is invalid or expired");
+            throw refreshTokenInvalidOrExpired();
         }
 
         verifyAccountCanLogin(currentRefreshToken.getUser(), now);
@@ -380,17 +476,91 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public String resetPassword(ResetPasswordRequest resetPasswordRequest) {
-        return "";
+        if (resetPasswordRequest == null) {
+            throw resetPasswordRequestRequired();
+        }
+
+        User user = findLockedUserByEmail(normalizeEmail(resetPasswordRequest.getEmail()));
+        requireActiveAccount(user, AuthExceptionHandler::accountCannotResetPassword);
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        actionTokenRepository.revokePendingByUserIdAndPurpose(
+                user.getId(),
+                ActionTokenPurpose.RESET_PASSWORD,
+                now
+        );
+        createAndScheduleActionToken(user, ActionTokenPurpose.RESET_PASSWORD, resetPasswordTokenTtl, now);
+
+        return PASSWORD_RESET_LINK_SENT_MESSAGE;
     }
 
     @Override
-    public String verifyResetPasswordToken(VerifyResetPasswordRequest verifyResetPasswordRequest) {
-        return "";
+    @Transactional
+    public String resetPassword(VerifyResetPasswordRequest verifyResetPasswordRequest) {
+        if (verifyResetPasswordRequest == null) {
+            throw resetPasswordRequestRequired();
+        }
+
+        validateNewPassword(
+                verifyResetPasswordRequest.getNewPassword(),
+                verifyResetPasswordRequest.getConfirmPassword()
+        );
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        ActionToken resetPasswordToken = findValidActionToken(
+                normalizeEmail(verifyResetPasswordRequest.getEmail()),
+                verifyResetPasswordRequest.getResetPasswordToken(),
+                ActionTokenPurpose.RESET_PASSWORD,
+                now,
+                AuthExceptionHandler::passwordResetLinkInvalidOrExpired
+        );
+
+        User user = findLockedActionTokenUser(resetPasswordToken);
+        requireActiveAccount(user, AuthExceptionHandler::accountCannotResetPassword);
+
+        resetLoginFailureState(user);
+        updatePasswordAndRevokeSessions(user, verifyResetPasswordRequest.getNewPassword(), now, PASSWORD_RESET_REVOKE_REASON);
+        resetPasswordToken.setConsumedAt(now);
+        actionTokenRepository.save(resetPasswordToken);
+
+        return PASSWORD_RESET_SUCCESS_MESSAGE;
     }
 
     @Override
+    @Transactional
     public String changePassword(ChangePasswordRequest changePasswordRequest) {
-        return "";
+        if (changePasswordRequest == null) {
+            throw changePasswordRequestRequired();
+        }
+
+        validateNewPassword(changePasswordRequest.getNewPassword(), changePasswordRequest.getConfirmPassword());
+
+        User contextUser = securityUtil.getUserContext();
+        if (contextUser == null || contextUser.getId() == null) {
+            throw userNotAuthorized();
+        }
+
+        User user = userRepository.findByIdForUpdate(contextUser.getId())
+                .orElseThrow(AuthExceptionHandler::userNotAuthorized);
+        requireActiveAccount(user, AuthExceptionHandler::accountCannotChangePassword);
+
+        if (!passwordMatches(changePasswordRequest.getOldPassword(), user.getPasswordHash())) {
+            throw currentPasswordIncorrect();
+        }
+
+        if (passwordMatches(changePasswordRequest.getNewPassword(), user.getPasswordHash())) {
+            throw newPasswordMustDifferFromCurrentPassword();
+        }
+
+        updatePasswordAndRevokeSessions(
+                user,
+                changePasswordRequest.getNewPassword(),
+                OffsetDateTime.now(ZoneOffset.UTC),
+                PASSWORD_CHANGED_REVOKE_REASON
+        );
+
+        return PASSWORD_CHANGED_SUCCESS_MESSAGE;
     }
 }
