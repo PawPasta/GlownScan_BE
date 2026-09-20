@@ -1,6 +1,8 @@
 package com.pawpasta.glowscan_be.controller;
 
 import com.pawpasta.glowscan_be.modal.dto.request.LoginRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.LogoutRequest;
+import com.pawpasta.glowscan_be.modal.dto.request.RefreshTokenRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.RegisterRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.VerificationEmailRequest;
 import com.pawpasta.glowscan_be.modal.dto.response.LoginResponse;
@@ -54,6 +56,24 @@ public class AuthController {
     @Operation(summary = "Log in", description = "Validates credentials, records the device, and returns access and refresh tokens.")
     public ResponseUtil<LoginResponse> login(@Valid @RequestBody LoginRequest loginRequest) {
         return ResponseUtil.success("Login successful", authService.login(loginRequest));
+    }
+
+    @PostMapping(value = "/logout",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    @Operation(summary = "Log out", description = "Revokes the current device session using its access token.")
+    public ResponseUtil<Void> logout(@Valid @RequestBody LogoutRequest logoutRequest) {
+        return ResponseUtil.success(authService.logout(logoutRequest));
+    }
+
+    @PostMapping(value = "/refresh-token",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    @Operation(summary = "Refresh tokens", description = "Rotates a valid access and refresh token pair.")
+    public ResponseUtil<LoginResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest refreshTokenRequest) {
+        return ResponseUtil.success("Tokens refreshed successfully", authService.refreshToken(refreshTokenRequest));
     }
 
 }

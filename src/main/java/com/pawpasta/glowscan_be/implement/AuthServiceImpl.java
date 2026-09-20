@@ -18,12 +18,13 @@ import com.pawpasta.glowscan_be.repository.UserRepository;
 import com.pawpasta.glowscan_be.repository.UserRoleRepository;
 import com.pawpasta.glowscan_be.service.AuthService;
 import com.pawpasta.glowscan_be.service.EmailService;
-import com.pawpasta.glowscan_be.service.JwtService;
-import com.pawpasta.glowscan_be.service.OpaqueTokenService;
+import com.pawpasta.glowscan_be.service.TokenService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCrypt;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -64,27 +65,8 @@ public class AuthServiceImpl implements AuthService {
     private final ActionTokenRepository actionTokenRepository;
     private final UserDeviceRepository userDeviceRepository;
     private final RefreshTokenRepository refreshTokenRepository;
-    private final OpaqueTokenService opaqueTokenService;
+    private final TokenService tokenService;
     private final EmailService emailService;
-    private final JwtService jwtService;
-
-    private void validatePassword(RegisterRequest registerRequest) {
-
-        if (registerRequest.getPassword() == null || !registerRequest.getPassword().matches(PASSWORD_REGEX)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Password must be 6–12 characters long and include " +
-                            "at least one uppercase letter and one special character.");
-        }
-
-        if (!registerRequest.getPassword().equals(registerRequest.getConfirmPassword())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Password confirmation does not match");
-        }
-
-    }
-    private String hashPassword(String password) {
-        return BCrypt.hashpw(password, BCrypt.gensalt());
-    }
 
     private String normalizeEmail(String email) {
         if (email == null || email.isBlank()) {
@@ -94,43 +76,15 @@ public class AuthServiceImpl implements AuthService {
         return email.trim().toLowerCase(Locale.ROOT);
     }
 
-    private ResponseStatusException invalidCredentials() {
-        return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
-    }
-
-    private boolean passwordMatches(User user, String password) {
-        if (user.getPasswordHash() == null) {
-            return false;
-        }
-
-        try {
-            return BCrypt.checkpw(password, user.getPasswordHash());
-        } catch (IllegalArgumentException exception) {
-            return false;
-        }
-    }
-
-    private void unlockIfExpired(User user, OffsetDateTime now) {
-        if (user.getStatus() != UserStatus.LOCKED) {
-            return;
-        }
-
-        if (user.getLockedUntil() != null && !user.getLockedUntil().isAfter(now)) {
-            user.setStatus(UserStatus.ACTIVE);
-            user.setLockedUntil(null);
-            user.setFailedLoginCount(0);
-            return;
-        }
-
-        throw new ResponseStatusException(HttpStatus.LOCKED, "Account is temporarily locked");
-    }
-
     private void verifyAccountCanLogin(User user, OffsetDateTime now) {
-        unlockIfExpired(user, now);
-
-        if (user.getStatus() == UserStatus.PENDING_VERIFICATION) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Please verify your email before logging in");
+        if (user.getStatus() == UserStatus.LOCKED) {
+            if (user.getLockedUntil() != null && !user.getLockedUntil().isAfter(now)) {
+                user.setStatus(UserStatus.ACTIVE);
+                user.setLockedUntil(null);
+                user.setFailedLoginCount(0);
+            } else {
+                throw new ResponseStatusException(HttpStatus.LOCKED, "Account is temporarily locked");
+            }
         }
 
         if (user.getStatus() != UserStatus.ACTIVE) {
@@ -148,51 +102,35 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
-    private String requireText(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " is required");
-        }
-        return value.strip();
-    }
-
     private UserDevice saveUserDevice(User user, LoginRequest loginRequest, OffsetDateTime now) {
-        String deviceUuid = requireText(loginRequest.getDeviceUuid(), "Device UUID");
-        String deviceName = requireText(loginRequest.getDeviceName(), "Device name");
+
+        if ( loginRequest.getDeviceUuid() == null || loginRequest.getDeviceUuid().isBlank() ||
+                loginRequest.getDeviceName() == null || loginRequest.getDeviceName().isBlank()
+        ) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,  "Device Information is required");
+        }
 
         if (loginRequest.getPlatform() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Device platform is required");
         }
 
-        UserDevice device = userDeviceRepository.findByUserAndDeviceUuid(user, deviceUuid)
+        UserDevice device = userDeviceRepository.findByUserAndDeviceUuid(user, loginRequest.getDeviceUuid())
                 .orElseGet(UserDevice::new);
         device.setUser(user);
-        device.setDeviceUuid(deviceUuid);
-        device.setDeviceName(deviceName);
+        device.setDeviceUuid(loginRequest.getDeviceUuid());
+        device.setDeviceName(loginRequest.getDeviceName());
         device.setPlatform(loginRequest.getPlatform());
         device.setLastActiveAt(now);
 
         return userDeviceRepository.save(device);
     }
 
-    private String createRefreshToken(User user, UserDevice device, OffsetDateTime now) {
-        String rawRefreshToken = opaqueTokenService.generateToken();
-        RefreshToken refreshToken = new RefreshToken();
-        refreshToken.setUser(user);
-        refreshToken.setDevice(device);
-        refreshToken.setTokenHash(opaqueTokenService.hashToken(rawRefreshToken));
-        refreshToken.setTokenFamilyId(UUID.randomUUID());
-        refreshToken.setExpiresAt(now.plus(refreshTokenTtl));
-        refreshTokenRepository.save(refreshToken);
-
-        return rawRefreshToken;
-    }
-
     private void createVerificationToken(User user) {
-        String rawToken = opaqueTokenService.generateToken();
+        String rawToken = tokenService.generateActionToken();
         ActionToken verificationToken = new ActionToken();
         verificationToken.setUser(user);
         verificationToken.setPurpose(ActionTokenPurpose.VERIFY_EMAIL);
-        verificationToken.setTokenHash(opaqueTokenService.hashToken(rawToken));
+        verificationToken.setTokenHash(tokenService.hashActionToken(rawToken));
         verificationToken.setExpiresAt(OffsetDateTime.now(ZoneOffset.UTC).plus(verifyEmailTokenTtl));
         actionTokenRepository.save(verificationToken);
 
@@ -218,7 +156,16 @@ public class AuthServiceImpl implements AuthService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Register request is required");
         }
 
-        validatePassword(registerRequest);
+        if (registerRequest.getPassword() == null || !registerRequest.getPassword().matches(PASSWORD_REGEX)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Password must be 6–12 characters long and include " +
+                            "at least one uppercase letter and one special character.");
+        }
+
+        if (!registerRequest.getPassword().equals(registerRequest.getConfirmPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Password confirmation does not match");
+        }
 
         String email = normalizeEmail(registerRequest.getEmail());
         if (userRepository.existsByEmailAndDeletedAtIsNull(email))
@@ -231,7 +178,7 @@ public class AuthServiceImpl implements AuthService {
 
         user.setEmail(email);
         user.setFullName(registerRequest.getFullName());
-        user.setPasswordHash(hashPassword(registerRequest.getPassword()));
+        user.setPasswordHash(BCrypt.hashpw(registerRequest.getPassword(), BCrypt.gensalt()));
         user.setStatus(UserStatus.PENDING_VERIFICATION);
         user.setTokenVersion(1);
         user.setFailedLoginCount(0);
@@ -254,7 +201,7 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public String verifyEmailToken(VerificationEmailRequest verificationEmailRequest) {
         String email = normalizeEmail(verificationEmailRequest.getEmail());
-        String tokenHash = opaqueTokenService.hashToken(verificationEmailRequest.getRawToken());
+        String tokenHash = tokenService.hashActionToken(verificationEmailRequest.getRawToken());
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         ActionToken verificationToken = actionTokenRepository
@@ -291,21 +238,31 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(noRollbackFor = ResponseStatusException.class)
     public LoginResponse login(LoginRequest loginRequest) {
-        if (loginRequest == null || loginRequest.getPassword() == null || loginRequest.getPassword().isBlank()) {
+        if (loginRequest.getEmail() == null || loginRequest.getPassword() == null || loginRequest.getPassword().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email and password are required");
         }
 
-        String email = normalizeEmail(loginRequest.getEmail());
-        User user = userRepository.findByEmailAndDeletedAtIsNull(email)
-                .orElseThrow(this::invalidCredentials);
+        User user = userRepository.findByEmailAndDeletedAtIsNull(normalizeEmail(loginRequest.getEmail()))
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED,
+                        "Invalid Email Or Password, Try Again"
+                ));
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         verifyAccountCanLogin(user, now);
 
-        if (!passwordMatches(user, loginRequest.getPassword())) {
+        boolean passwordMatches;
+        try {
+            passwordMatches = user.getPasswordHash() != null
+                    && BCrypt.checkpw(loginRequest.getPassword(), user.getPasswordHash());
+        } catch (IllegalArgumentException exception) {
+            passwordMatches = false;
+        }
+
+        if (!passwordMatches) {
             recordFailedLogin(user, now);
             userRepository.save(user);
-            throw invalidCredentials();
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Email Or Password, Try Again");
         }
 
         user.setFailedLoginCount(0);
@@ -314,17 +271,126 @@ public class AuthServiceImpl implements AuthService {
         userRepository.save(user);
 
         UserDevice device = saveUserDevice(user, loginRequest, now);
-        String refreshToken = createRefreshToken(user, device, now);
-        return new LoginResponse(jwtService.generateToken(user), refreshToken);
+        String rawRefreshToken = tokenService.generateActionToken();
+
+        RefreshToken refreshToken = new RefreshToken();
+        refreshToken.setUser(user);
+        refreshToken.setDevice(device);
+        refreshToken.setTokenHash(tokenService.hashActionToken(rawRefreshToken));
+        refreshToken.setTokenFamilyId(UUID.randomUUID());
+        refreshToken.setExpiresAt(now.plus(refreshTokenTtl));
+        refreshTokenRepository.save(refreshToken);
+
+        return new LoginResponse(tokenService.generateJWTToken(user), rawRefreshToken);
     }
 
     @Override
+    @Transactional
     public String logout(LogoutRequest logoutRequest) {
+        if (logoutRequest == null || logoutRequest.getAccessToken() == null
+                || logoutRequest.getAccessToken().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Access token is required");
+        }
+
+        try {
+            Jwt jwt = tokenService.decodeJWTToken(logoutRequest.getAccessToken().strip());
+            String userIdClaim = jwt.getClaimAsString("uid");
+            if (userIdClaim == null || userIdClaim.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Access token is invalid or expired");
+            }
+
+            refreshTokenRepository.revokeActiveTokensByUserId(
+                    UUID.fromString(userIdClaim),
+                    OffsetDateTime.now(ZoneOffset.UTC),
+                    "LOGOUT"
+            );
+        } catch (JwtException | IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Access token is invalid or expired");
+        }
+
+        return "Logged out successfully";
+    }
+
+    @Override
+    @Transactional(noRollbackFor = ResponseStatusException.class)
+    public LoginResponse refreshToken(RefreshTokenRequest refreshTokenRequest) {
+        if (refreshTokenRequest == null || refreshTokenRequest.getAccessToken() == null
+                || refreshTokenRequest.getAccessToken().isBlank()
+                || refreshTokenRequest.getRefreshToken() == null
+                || refreshTokenRequest.getRefreshToken().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Access token and refresh token are required");
+        }
+
+        try {
+            Jwt jwt = tokenService.decodeJWTTokenForRefresh(refreshTokenRequest.getAccessToken().strip());
+            String userIdClaim = jwt.getClaimAsString("uid");
+            if (userIdClaim == null || userIdClaim.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Access token is invalid or expired");
+            }
+        } catch (JwtException | IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Access token is invalid or expired");
+        }
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        RefreshToken currentRefreshToken = refreshTokenRepository
+                .findByTokenHash(tokenService.hashActionToken(refreshTokenRequest.getRefreshToken().strip()))
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED,
+                        "Refresh token is invalid or expired"
+                ));
+
+        if (currentRefreshToken.getUser() == null || currentRefreshToken.getUser().getId() == null
+                || currentRefreshToken.getTokenFamilyId() == null
+                || currentRefreshToken.getExpiresAt() == null
+                || !currentRefreshToken.getExpiresAt().isAfter(now)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token is invalid or expired");
+        }
+
+        if (currentRefreshToken.getRevokedAt() != null) {
+            refreshTokenRepository.revokeActiveTokensByFamilyId(
+                    currentRefreshToken.getTokenFamilyId(),
+                    now,
+                    "REFRESH_TOKEN_REUSE"
+            );
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token is invalid or expired");
+        }
+
+        verifyAccountCanLogin(currentRefreshToken.getUser(), now);
+
+        currentRefreshToken.setRevokedAt(now);
+        currentRefreshToken.setRevokeReason("ROTATED");
+        currentRefreshToken = refreshTokenRepository.saveAndFlush(currentRefreshToken);
+
+        String rawRefreshToken = tokenService.generateActionToken();
+        RefreshToken replacementRefreshToken = new RefreshToken();
+        replacementRefreshToken.setUser(currentRefreshToken.getUser());
+        replacementRefreshToken.setDevice(currentRefreshToken.getDevice());
+        replacementRefreshToken.setTokenHash(tokenService.hashActionToken(rawRefreshToken));
+        replacementRefreshToken.setTokenFamilyId(currentRefreshToken.getTokenFamilyId());
+        replacementRefreshToken.setExpiresAt(now.plus(refreshTokenTtl));
+        replacementRefreshToken = refreshTokenRepository.save(replacementRefreshToken);
+
+        currentRefreshToken.setReplacedByToken(replacementRefreshToken);
+        refreshTokenRepository.save(currentRefreshToken);
+
+        return new LoginResponse(
+                tokenService.generateJWTToken(currentRefreshToken.getUser()),
+                rawRefreshToken
+        );
+    }
+
+    @Override
+    public String resetPassword(ResetPasswordRequest resetPasswordRequest) {
         return "";
     }
 
     @Override
-    public String refreshToken(RefreshTokenRequest refreshTokenRequest) {
+    public String verifyResetPasswordToken(VerifyResetPasswordRequest verifyResetPasswordRequest) {
+        return "";
+    }
+
+    @Override
+    public String changePassword(ChangePasswordRequest changePasswordRequest) {
         return "";
     }
 }

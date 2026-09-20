@@ -9,5 +9,11 @@ public interface AuthService {
      String verifyEmailToken(VerificationEmailRequest verificationEmailRequest);
      LoginResponse login(LoginRequest loginRequest);
      String logout(LogoutRequest logoutRequest);
-     String refreshToken(RefreshTokenRequest refreshTokenRequest);
+     LoginResponse refreshToken(RefreshTokenRequest refreshTokenRequest);
+     String resetPassword(ResetPasswordRequest resetPasswordRequest);
+     String verifyResetPasswordToken(VerifyResetPasswordRequest verifyResetPasswordRequest);
+     String changePassword(ChangePasswordRequest changePasswordRequest);
+
+
+
 }
