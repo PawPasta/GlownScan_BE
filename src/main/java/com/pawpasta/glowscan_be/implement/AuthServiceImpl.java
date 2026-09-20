@@ -4,7 +4,6 @@ import com.pawpasta.glowscan_be.handler.AuthExceptionHandler;
 import com.pawpasta.glowscan_be.modal.dto.request.ChangePasswordRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.EmailContentRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.LoginRequest;
-import com.pawpasta.glowscan_be.modal.dto.request.LogoutRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.RefreshTokenRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.RegisterRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.ResetPasswordRequest;
@@ -385,14 +384,15 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
-    public String logout(LogoutRequest logoutRequest) {
-        if (logoutRequest == null || logoutRequest.getAccessToken() == null
-                || logoutRequest.getAccessToken().isBlank()) {
-            throw accessTokenRequired();
+    public String logout() {
+
+        User contextUser = securityUtil.getUserContext();
+        if (contextUser == null || contextUser.getId() == null) {
+            throw userNotAuthorized();
         }
 
         try {
-            Jwt jwt = tokenService.decodeJWTToken(logoutRequest.getAccessToken().strip());
+            Jwt jwt = tokenService.decodeJWTToken(securityUtil.getAccessToken().strip());
             String userIdClaim = jwt.getClaimAsString("uid");
             if (userIdClaim == null || userIdClaim.isBlank()) {
                 throw accessTokenInvalidOrExpired();

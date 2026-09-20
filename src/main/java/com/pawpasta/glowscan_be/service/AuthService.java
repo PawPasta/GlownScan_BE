@@ -8,7 +8,7 @@ public interface AuthService {
      String register(RegisterRequest registerRequest);
      String verifyEmailToken(VerificationEmailRequest verificationEmailRequest);
      LoginResponse login(LoginRequest loginRequest);
-     String logout(LogoutRequest logoutRequest);
+     String logout();
      LoginResponse refreshToken(RefreshTokenRequest refreshTokenRequest);
      String resetPassword(ResetPasswordRequest resetPasswordRequest);
      String resetPassword(VerifyResetPasswordRequest verifyResetPasswordRequest);

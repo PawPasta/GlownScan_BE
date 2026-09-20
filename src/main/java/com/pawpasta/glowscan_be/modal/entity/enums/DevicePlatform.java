@@ -1,6 +1,6 @@
 package com.pawpasta.glowscan_be.modal.entity.enums;
 
 public enum DevicePlatform {
-    ANDROID, IOS
+    ANDROID, IOS, WEBSITE
 }
 

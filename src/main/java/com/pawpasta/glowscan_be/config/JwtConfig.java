@@ -58,7 +58,7 @@ public class JwtConfig {
             throw new IllegalArgumentException("JWT secret must be at least 256 bits for HS256");
         }
 
-        return new SecretKeySpec(keyBytes, "HmacSHA256");
+        return new SecretKeySpec(keyBytes, "HmacSHAH256");
     }
 
 
@@ -83,7 +83,7 @@ public class JwtConfig {
             return OAuth2TokenValidatorResult.failure(
                     new OAuth2Error(
                             "invalid_token",
-                            "Token Audiance is not valid",
+                            "Token Audience is not valid",
                             null
                     )
                 );

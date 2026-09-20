@@ -2,7 +2,6 @@ package com.pawpasta.glowscan_be.controller;
 
 import com.pawpasta.glowscan_be.modal.dto.request.ChangePasswordRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.LoginRequest;
-import com.pawpasta.glowscan_be.modal.dto.request.LogoutRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.RefreshTokenRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.RegisterRequest;
 import com.pawpasta.glowscan_be.modal.dto.request.ResetPasswordRequest;
@@ -61,13 +60,10 @@ public class AuthController {
         return ResponseUtil.success("Login successful", authService.login(loginRequest));
     }
 
-    @PostMapping(value = "/logout",
-            consumes = MediaType.APPLICATION_JSON_VALUE,
-            produces = MediaType.APPLICATION_JSON_VALUE
-    )
+    @PostMapping(value = "/logout")
     @Operation(summary = "Log out", description = "Revokes the current device session using its access token.")
-    public ResponseUtil<Void> logout(@Valid @RequestBody LogoutRequest logoutRequest) {
-        return ResponseUtil.success(authService.logout(logoutRequest));
+    public ResponseUtil<Void> logout() {
+        return ResponseUtil.success(authService.logout());
     }
 
     @PostMapping(value = "/refresh-token",

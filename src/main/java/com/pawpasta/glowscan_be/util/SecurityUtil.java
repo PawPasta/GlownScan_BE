@@ -20,6 +20,17 @@ import static com.pawpasta.glowscan_be.handler.AuthExceptionHandler.accessTokenI
 public class SecurityUtil {
 
     private final UserRepository userRepository;
+
+    public String getAccessToken() {
+        Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+
+        if (!(authentication instanceof JwtAuthenticationToken jwtAuthentication)) {
+            throw accessTokenInvalidOrExpired();
+        }
+
+        return jwtAuthentication.getToken().getTokenValue();
+    }
     public User getUserContext() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (!(authentication instanceof JwtAuthenticationToken jwtAuthentication)) {
@@ -38,4 +49,5 @@ public class SecurityUtil {
                 .filter(user -> user.getStatus() == UserStatus.ACTIVE)
                 .orElseThrow(AuthExceptionHandler::userNotAuthorized);
     }
+
 }

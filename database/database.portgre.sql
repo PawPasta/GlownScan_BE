@@ -70,7 +70,7 @@ CREATE TABLE app_auth.user_devices (
                                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                        user_id UUID NOT NULL REFERENCES app_auth.users(id) ON DELETE CASCADE,
                                        device_uuid VARCHAR(255) NOT NULL CHECK (btrim(device_uuid) <> ''),
-                                       platform VARCHAR(20) NOT NULL CHECK (platform IN ('ANDROID','IOS')),
+                                       platform VARCHAR(20) NOT NULL CHECK (platform IN ('ANDROID','IOS', 'WEBSITE')),
                                        device_name VARCHAR(150),
                                        device_model VARCHAR(150),
                                        os_version VARCHAR(50),
