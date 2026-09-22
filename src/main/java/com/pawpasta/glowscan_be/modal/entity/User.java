@@ -29,12 +29,6 @@ public class User {
     @Column(name = "password_hash", nullable = false, columnDefinition = "text")
     private String passwordHash;
 
-    @Column(name = "full_name", length = 150)
-    private String fullName;
-
-    @Column(name = "avatar_url", columnDefinition = "text")
-    private String avatarUrl;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
     private UserStatus status = UserStatus.PENDING_VERIFICATION;

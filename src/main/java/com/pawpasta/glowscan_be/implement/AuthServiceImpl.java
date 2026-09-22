@@ -201,7 +201,7 @@ public class AuthServiceImpl implements AuthService {
         actionTokenRepository.save(actionToken);
 
         scheduleEmailAfterCommit(new EmailContentRequest(
-                user.getEmail(), user.getFullName(), rawToken, purpose
+                user.getEmail(), null, rawToken, purpose
         ));
     }
 
@@ -292,7 +292,6 @@ public class AuthServiceImpl implements AuthService {
 
         User user = new User();
         user.setEmail(email);
-        user.setFullName(registerRequest.getFullName());
         user.setPasswordHash(BCrypt.hashpw(registerRequest.getPassword(), BCrypt.gensalt()));
         user.setStatus(UserStatus.PENDING_VERIFICATION);
         user.setTokenVersion(1);

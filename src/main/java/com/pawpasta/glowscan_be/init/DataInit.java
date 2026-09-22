@@ -14,12 +14,14 @@ public class DataInit {
     @PostConstruct
     public void init(){
         jdbcTemplate.execute("""
-                
-                            DROP SCHEMA IF EXISTS app_auth CASCADE;
+                DROP SCHEMA IF EXISTS app_profile CASCADE;
+                DROP SCHEMA IF EXISTS app_auth CASCADE;
                 BEGIN;
                 CREATE SCHEMA app_auth;
+                CREATE SCHEMA app_profile;
                 REVOKE ALL ON SCHEMA app_auth FROM PUBLIC;
-                
+                REVOKE ALL ON SCHEMA app_profile FROM PUBLIC;
+               \s
                 CREATE FUNCTION app_auth.set_updated_at() RETURNS trigger
                     LANGUAGE plpgsql SET search_path = pg_catalog AS $$
                 BEGIN
@@ -27,13 +29,11 @@ public class DataInit {
                 RETURN NEW;
                 END;
                 $$;
-                
+               \s
                 CREATE TABLE app_auth.users (
                                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                 email VARCHAR(320) NOT NULL,
                                                 password_hash TEXT NOT NULL,
-                                                full_name VARCHAR(150),
-                                                avatar_url TEXT,
                                                 status VARCHAR(30) NOT NULL DEFAULT 'PENDING_VERIFICATION',
                                                 email_verified_at TIMESTAMPTZ,
                                                 token_version INTEGER NOT NULL DEFAULT 1 CHECK (token_version >= 1),
@@ -50,7 +50,56 @@ public class DataInit {
                 );
                 CREATE UNIQUE INDEX ux_users_active_email ON app_auth.users(email) WHERE deleted_at IS NULL;
                 CREATE INDEX ix_users_status ON app_auth.users(status);
-                
+               \s
+               \s
+                CREATE FUNCTION app_profile.set_updated_at() RETURNS trigger
+                    LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+                BEGIN
+                    NEW.updated_at = CURRENT_TIMESTAMP;
+                    RETURN NEW;
+                END;
+                $$;
+               \s
+                CREATE TABLE app_profile.user_profiles (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID NOT NULL UNIQUE,
+                    full_name VARCHAR(150),
+                    avatar_url TEXT,
+                    date_of_birth DATE,
+                    gender VARCHAR(30),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_user_profiles_user FOREIGN KEY (user_id)
+                        REFERENCES app_auth.users(id) ON DELETE CASCADE,
+                    CONSTRAINT ck_user_profiles_full_name CHECK (
+                        full_name IS NULL OR btrim(full_name) <> ''
+                    ),
+                    CONSTRAINT ck_user_profiles_gender CHECK (
+                        gender IS NULL OR gender IN ('MALE','FEMALE','OTHER','PREFER_NOT_TO_SAY')
+                    )
+                );
+               \s
+                CREATE TABLE app_profile.skin_profiles (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_profile_id UUID NOT NULL UNIQUE,
+                    skin_type VARCHAR(30),
+                    sensitivity_level VARCHAR(20),
+                    notes TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_skin_profiles_user_profile FOREIGN KEY (user_profile_id)
+                        REFERENCES app_profile.user_profiles(id) ON DELETE CASCADE,
+                    CONSTRAINT ck_skin_profiles_skin_type CHECK (
+                        skin_type IS NULL OR skin_type IN ('NORMAL','DRY','OILY','COMBINATION')
+                    ),
+                    CONSTRAINT ck_skin_profiles_sensitivity CHECK (
+                        sensitivity_level IS NULL OR sensitivity_level IN ('LOW','MEDIUM','HIGH')
+                    ),
+                    CONSTRAINT ck_skin_profiles_notes CHECK (
+                        notes IS NULL OR btrim(notes) <> ''
+                    )
+                );
+               \s
                 CREATE TABLE app_auth.roles (
                                                 id SMALLINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                                                 code VARCHAR(50) NOT NULL UNIQUE CHECK (code = upper(code)),
@@ -82,12 +131,12 @@ public class DataInit {
                                                            CONSTRAINT uq_role_permissions_role_permission UNIQUE (role_id, permission_id)
                 );
                 CREATE INDEX ix_role_permissions_permission ON app_auth.role_permissions(permission_id);
-                
+               \s
                 CREATE TABLE app_auth.user_devices (
                                                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                        user_id UUID NOT NULL REFERENCES app_auth.users(id) ON DELETE CASCADE,
                                                        device_uuid VARCHAR(255) NOT NULL CHECK (btrim(device_uuid) <> ''),
-                                                       platform VARCHAR(20) NOT NULL CHECK (platform IN ('ANDROID','IOS','WEBSITE')),
+                                                       platform VARCHAR(20) NOT NULL CHECK (platform IN ('ANDROID','IOS', 'WEBSITE')),
                                                        device_name VARCHAR(150),
                                                        device_model VARCHAR(150),
                                                        os_version VARCHAR(50),
@@ -99,7 +148,7 @@ public class DataInit {
                                                        CONSTRAINT uq_devices_user_installation UNIQUE(user_id, device_uuid)
                 );
                 CREATE INDEX ix_devices_last_active ON app_auth.user_devices(last_active_at);
-                
+               \s
                 CREATE TABLE app_auth.refresh_tokens (
                                                          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                          user_id UUID NOT NULL REFERENCES app_auth.users(id) ON DELETE CASCADE,
@@ -133,7 +182,7 @@ public class DataInit {
                 CREATE INDEX ix_refresh_expiry ON app_auth.refresh_tokens(expires_at);
                 COMMENT ON COLUMN app_auth.refresh_tokens.token_family_id IS
                     'Stable JWT sid. Generate a fresh UUID on login; preserve during rotation. Never reopen a revoked family.';
-                
+               \s
                 CREATE TABLE app_auth.push_registrations (
                                                              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                              device_id UUID NOT NULL REFERENCES app_auth.user_devices(id) ON DELETE CASCADE,
@@ -154,7 +203,7 @@ public class DataInit {
                     WHERE status = 'ACTIVE';
                 COMMENT ON COLUMN app_auth.push_registrations.registration_type IS
                     'Use the registration format actually supported by the configured SDK/send API. A bare FID is not interchangeable with an FCM token.';
-                
+               \s
                 CREATE TABLE app_auth.action_tokens (
                                                         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                         user_id UUID NOT NULL REFERENCES app_auth.users(id) ON DELETE CASCADE,
@@ -173,7 +222,7 @@ public class DataInit {
                     WHERE consumed_at IS NULL AND revoked_at IS NULL;
                 -- Expired but unconsumed tokens still occupy this unique slot.
                 -- Revoke them before inserting their replacement; do not use now() in an index predicate.
-                
+               \s
                 CREATE TABLE app_auth.auth_audit_logs (
                                                           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                                                           user_id UUID REFERENCES app_auth.users(id) ON DELETE SET NULL,
@@ -188,14 +237,18 @@ public class DataInit {
                 CREATE INDEX ix_audit_user_time ON app_auth.auth_audit_logs(user_id, occurred_at DESC);
                 CREATE INDEX ix_audit_event_time ON app_auth.auth_audit_logs(event_type, occurred_at DESC);
                 CREATE INDEX ix_audit_device ON app_auth.auth_audit_logs(device_id);
-                
+               \s
                 CREATE TRIGGER trg_users_updated BEFORE UPDATE ON app_auth.users
                     FOR EACH ROW EXECUTE FUNCTION app_auth.set_updated_at();
+                CREATE TRIGGER trg_user_profiles_updated BEFORE UPDATE ON app_profile.user_profiles
+                    FOR EACH ROW EXECUTE FUNCTION app_profile.set_updated_at();
+                CREATE TRIGGER trg_skin_profiles_updated BEFORE UPDATE ON app_profile.skin_profiles
+                    FOR EACH ROW EXECUTE FUNCTION app_profile.set_updated_at();
                 CREATE TRIGGER trg_devices_updated BEFORE UPDATE ON app_auth.user_devices
                     FOR EACH ROW EXECUTE FUNCTION app_auth.set_updated_at();
                 CREATE TRIGGER trg_push_updated BEFORE UPDATE ON app_auth.push_registrations
                     FOR EACH ROW EXECUTE FUNCTION app_auth.set_updated_at();
-                
+               \s
                 INSERT INTO app_auth.roles(code, name, description) VALUES
                                                                         ('USER','User','Standard authenticated user'),
                                                                         ('ADMIN','Administrator','System administrator');
@@ -212,7 +265,7 @@ public class DataInit {
                 SELECT r.id, p.id FROM app_auth.roles r CROSS JOIN app_auth.permissions p
                 WHERE r.code = 'ADMIN' OR (r.code = 'USER' AND p.code IN
                                                                ('PROFILE_READ_OWN','PROFILE_UPDATE_OWN','DEVICE_READ_OWN','DEVICE_REVOKE_OWN'));
-                
+               \s
                 -- Defense in depth: no mobile/client access policies. Backend uses a separately
                 -- configured trusted DB role; grant only required privileges outside this script.
                 DO $$
@@ -228,11 +281,14 @@ public class DataInit {
                 REVOKE ALL ON ALL TABLES IN SCHEMA app_auth FROM PUBLIC;
                 REVOKE ALL ON ALL SEQUENCES IN SCHEMA app_auth FROM PUBLIC;
                 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app_auth FROM PUBLIC;
+               \s
+                ALTER TABLE app_profile.user_profiles ENABLE ROW LEVEL SECURITY;
+                ALTER TABLE app_profile.skin_profiles ENABLE ROW LEVEL SECURITY;
+                REVOKE ALL ON ALL TABLES IN SCHEMA app_profile FROM PUBLIC;
+                REVOKE ALL ON ALL SEQUENCES IN SCHEMA app_profile FROM PUBLIC;
+                REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app_profile FROM PUBLIC;
                 COMMIT;
-                
-                
-                
-                
-                """);
+                              \s
+               \s""");
     }
 }
