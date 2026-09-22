@@ -1,7 +1,10 @@
+DROP SCHEMA IF EXISTS app_profile CASCADE;
 DROP SCHEMA IF EXISTS app_auth CASCADE;
 BEGIN;
 CREATE SCHEMA app_auth;
+CREATE SCHEMA app_profile;
 REVOKE ALL ON SCHEMA app_auth FROM PUBLIC;
+REVOKE ALL ON SCHEMA app_profile FROM PUBLIC;
 
 CREATE FUNCTION app_auth.set_updated_at() RETURNS trigger
     LANGUAGE plpgsql SET search_path = pg_catalog AS $$
@@ -15,8 +18,6 @@ CREATE TABLE app_auth.users (
                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 email VARCHAR(320) NOT NULL,
                                 password_hash TEXT NOT NULL,
-                                full_name VARCHAR(150),
-                                avatar_url TEXT,
                                 status VARCHAR(30) NOT NULL DEFAULT 'PENDING_VERIFICATION',
                                 email_verified_at TIMESTAMPTZ,
                                 token_version INTEGER NOT NULL DEFAULT 1 CHECK (token_version >= 1),
@@ -33,6 +34,55 @@ CREATE TABLE app_auth.users (
 );
 CREATE UNIQUE INDEX ux_users_active_email ON app_auth.users(email) WHERE deleted_at IS NULL;
 CREATE INDEX ix_users_status ON app_auth.users(status);
+
+
+CREATE FUNCTION app_profile.set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+RETURN NEW;
+END;
+$$;
+
+CREATE TABLE app_profile.user_profiles (
+                                           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                           user_id UUID NOT NULL UNIQUE,
+                                           full_name VARCHAR(150),
+                                           avatar_url TEXT,
+                                           date_of_birth DATE,
+                                           gender VARCHAR(30),
+                                           created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                           updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                           CONSTRAINT fk_user_profiles_user FOREIGN KEY (user_id)
+                                               REFERENCES app_auth.users(id) ON DELETE CASCADE,
+                                           CONSTRAINT ck_user_profiles_full_name CHECK (
+                                               full_name IS NULL OR btrim(full_name) <> ''
+                                               ),
+                                           CONSTRAINT ck_user_profiles_gender CHECK (
+                                               gender IS NULL OR gender IN ('MALE','FEMALE','OTHER','PREFER_NOT_TO_SAY')
+                                               )
+);
+
+CREATE TABLE app_profile.skin_profiles (
+                                           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                           user_profile_id UUID NOT NULL UNIQUE,
+                                           skin_type VARCHAR(30),
+                                           sensitivity_level VARCHAR(20),
+                                           notes TEXT,
+                                           created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                           updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                           CONSTRAINT fk_skin_profiles_user_profile FOREIGN KEY (user_profile_id)
+                                               REFERENCES app_profile.user_profiles(id) ON DELETE CASCADE,
+                                           CONSTRAINT ck_skin_profiles_skin_type CHECK (
+                                               skin_type IS NULL OR skin_type IN ('NORMAL','DRY','OILY','COMBINATION')
+                                               ),
+                                           CONSTRAINT ck_skin_profiles_sensitivity CHECK (
+                                               sensitivity_level IS NULL OR sensitivity_level IN ('LOW','MEDIUM','HIGH')
+                                               ),
+                                           CONSTRAINT ck_skin_profiles_notes CHECK (
+                                               notes IS NULL OR btrim(notes) <> ''
+                                               )
+);
 
 CREATE TABLE app_auth.roles (
                                 id SMALLINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -174,6 +224,10 @@ CREATE INDEX ix_audit_device ON app_auth.auth_audit_logs(device_id);
 
 CREATE TRIGGER trg_users_updated BEFORE UPDATE ON app_auth.users
     FOR EACH ROW EXECUTE FUNCTION app_auth.set_updated_at();
+CREATE TRIGGER trg_user_profiles_updated BEFORE UPDATE ON app_profile.user_profiles
+    FOR EACH ROW EXECUTE FUNCTION app_profile.set_updated_at();
+CREATE TRIGGER trg_skin_profiles_updated BEFORE UPDATE ON app_profile.skin_profiles
+    FOR EACH ROW EXECUTE FUNCTION app_profile.set_updated_at();
 CREATE TRIGGER trg_devices_updated BEFORE UPDATE ON app_auth.user_devices
     FOR EACH ROW EXECUTE FUNCTION app_auth.set_updated_at();
 CREATE TRIGGER trg_push_updated BEFORE UPDATE ON app_auth.push_registrations
@@ -211,4 +265,10 @@ $$;
 REVOKE ALL ON ALL TABLES IN SCHEMA app_auth FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA app_auth FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app_auth FROM PUBLIC;
+
+ALTER TABLE app_profile.user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_profile.skin_profiles ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON ALL TABLES IN SCHEMA app_profile FROM PUBLIC;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA app_profile FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app_profile FROM PUBLIC;
 COMMIT;
