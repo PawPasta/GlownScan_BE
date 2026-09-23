@@ -35,36 +35,30 @@ API hay nghiệp vụ tương ứng trong source hiện tại.
 | `repository/` | Spring Data repository; `ActionTokenRepository`, `RefreshTokenRepository` và `UserRepository` có query/lock phục vụ auth. |
 | `util/` | `ResponseUtil`, `SecurityUtil` và tiện ích render/gửi email. |
 | `handler/` | `AuthExceptionHandler` là factory lỗi auth; `ExceptionHandler` là factory HTTP chung; `GlobalHandleException` chuyển lỗi ứng dụng thành response API. |
-| `init/DataInit.java` | DDL/seed được nhúng, chạy khi Spring context khởi tạo. Có rủi ro vận hành nghiêm trọng, xem phần Database. |
+| `resources/db/migration/` | Flyway migration versioned cho schema và dữ liệu tham chiếu. |
 | `resources/templates/email/account-action.html` | Template chung cho email xác thực và reset mật khẩu. |
-| `database/database.portgre.sql` | Bootstrap/reset script cho schema; tên file hiện tại là `portgre.sql`. |
 
 ## Database và khởi tạo
 
-Schema PostgreSQL là `app_auth`; `spring.jpa.hibernate.ddl-auto=validate` nên
-Hibernate chỉ kiểm tra mapping. `entity-mapping.md` chỉ định
-`database/database.portgre.sql` là nguồn schema, nhưng `DataInit` đang nhúng một
-bản DDL/seed khác. Nếu vẫn giữ `DataInit`, mọi thay đổi schema phải được đối
-chiếu ở cả hai nơi.
+Schema PostgreSQL là `app_auth` và `app_profile`. Flyway chạy migration trước
+khi Hibernate thực hiện `spring.jpa.hibernate.ddl-auto=validate`; migration là
+nguồn schema duy nhất.
 
 Các bảng là `users`, `roles`, `permissions`, `user_roles`,
 `role_permissions`, `user_devices`, `refresh_tokens`, `push_registrations`,
-`action_tokens` và `auth_audit_logs`. Nghiệp vụ hiện chỉ dùng users, roles,
+`action_tokens`, `auth_audit_logs`, `user_profiles` và `skin_profiles`. Nghiệp vụ hiện chỉ dùng users, roles,
 user roles, devices, refresh tokens và action tokens. Permission, push
 registration và audit log hiện mới có schema/entity/repository, chưa có API
 hay service nghiệp vụ.
 
-Script seed role `USER` và `ADMIN`, tám permission, cùng mapping permission cho
-role. Nó cũng bật RLS, thu hồi quyền `PUBLIC` và không tạo policy/grant cho app
-role; database bootstrap cần một PostgreSQL role/extension phù hợp (script dùng
-`gen_random_uuid()`).
+`V1__create_auth_schema.sql` tạo schema auth, `V2__create_profile_schema.sql`
+tạo schema profile và giữ lại dữ liệu `full_name`/`avatar_url` từ schema cũ,
+và `V3__seed_auth_reference_data.sql` seed role `USER`, `ADMIN`, permission và
+mapping role. Migration cũng bật RLS, thu hồi quyền `PUBLIC` và dùng
+`gen_random_uuid()` qua extension `pgcrypto`.
 
-> **Không chạy ứng dụng, JAR hay Spring context test vào database dùng chung.**
-> `DataInit` là `@Component` có `@PostConstruct` và chạy
-> `DROP SCHEMA IF EXISTS app_auth CASCADE` trước khi tạo lại schema và seed.
-> `database/database.portgre.sql` cũng là reset script, không phải migration an
-> toàn cho database đang có dữ liệu. Repository hiện không có Flyway hay
-> Liquibase.
+Với database auth đã tồn tại nhưng chưa có Flyway history, cấu hình baseline ở
+version 1 để migration profile và seed tiếp tục chạy mà không reset dữ liệu.
 
 ## Cấu hình runtime
 
@@ -157,9 +151,8 @@ có role/permission. Khi thêm public API, phải bổ sung rule rõ ràng vào
 - Với token/auth: giữ transaction, repository lock, hash raw token, revoke
   session đúng scope và gửi email bằng `scheduleEmailAfterCommit`. Không sao
   chép flow token hoặc password nếu helper hiện có đáp ứng được.
-- Thay đổi schema cần cập nhật mapping JPA và SQL bootstrap; do `DataInit` đang
-  tồn tại, kiểm tra cả DDL nhúng của nó. Chỉ làm migration an toàn khi cơ chế
-  reset-khi-startup đã được thay thế hoặc tách khỏi runtime.
+- Thay đổi schema phải thêm migration Flyway mới; không sửa migration đã được
+  áp dụng trong môi trường chia sẻ.
 
 ## Build, test và hạ tầng hiện tại
 
@@ -190,15 +183,13 @@ cần truy cập Maven Central nếu cache chưa có.
 
 Chỉ chạy `mvn test` hoặc `mvn -Dtest=GlowScanBeApplicationTests test` sau khi
 cung cấp đủ cấu hình và trỏ tới PostgreSQL disposable, vì test này khởi động full
-Spring context và kích hoạt `DataInit`. Trước khi có test profile an toàn, ưu
+Spring context và chạy Flyway migration. Trước khi có test profile an toàn, ưu
 tiên unit test mock repository/service cho logic mới.
 
 ## Tài liệu cần đọc với source
 
 - `README.md` mô tả product vision và có hướng dẫn Docker/wrapper chưa khớp với
   artifact hiện có.
-- `entity-mapping.md` hữu ích cho bảng/entity mapping, nhưng lệnh
-  `EntityMappingTests` trong đó đã lỗi thời.
+- `entity-mapping.md` hữu ích cho bảng/entity mapping và migration tương ứng.
 - Khi tài liệu và source mâu thuẫn, lấy source, `application.properties`,
-  `SecurityConfig`, `DataInit` và SQL bootstrap làm bằng chứng trước khi thay đổi
-  hành vi.
+  `SecurityConfig` và Flyway migration làm bằng chứng trước khi thay đổi hành vi.

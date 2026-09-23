@@ -1,10 +1,10 @@
 # JPA mapping
 
-`database.portgre.sql` is the source of truth. Run it once against an empty
-`app_auth` schema and use `spring.jpa.hibernate.ddl-auto=validate` with the
-configured PostgreSQL datasource. Do not use Hibernate schema generation to
-replace the script: partial unique indexes, CHECK constraints, deferred foreign
-keys, delete actions, triggers and RLS remain database-managed.
+Flyway migrations under `src/main/resources/db/migration` are the source of
+truth. They run before Hibernate validates the entity mappings. Do not use
+Hibernate schema generation: partial unique indexes, CHECK constraints,
+deferred foreign keys, delete actions, triggers and RLS remain
+database-managed.
 
 | Table | Entity |
 | --- | --- |
@@ -18,10 +18,13 @@ keys, delete actions, triggers and RLS remain database-managed.
 | push_registrations | PushRegistration |
 | action_tokens | ActionToken |
 | auth_audit_logs | AuthAuditLog |
+| user_profiles | UserProfile |
+| skin_profiles | SkinProfile |
 
-All entities are in `com.pawpasta.glowscan_be.modal.entity`. Relationships are lazy,
-unidirectional and have no ORM remove cascade; the SQL foreign keys own deletion
-behavior. Join entities preserve their assignment/grant timestamps and assigner.
+Entities are split across `auth.domain`, `profile.domain`, `notification.domain`
+and `audit.domain`. Relationships are lazy, unidirectional and have no ORM remove
+cascade; the SQL foreign keys own deletion behavior. Join entities preserve their
+assignment/grant timestamps and assigner.
 Database-generated timestamps are retrieved by Hibernate after insert/update.
 UUID identifiers, including the primary keys of the two join entities, are generated
 by JPA; numeric identities come from PostgreSQL. `user_roles` and
@@ -36,7 +39,5 @@ directly. The service must verify that a device belongs to the selected user and
 that a replacement token belongs to the expected rotation chain before persisting,
 because those former composite-key checks are no longer database constraints.
 
-Run `mvn -Dtest=EntityMappingTests test` to check Hibernate metadata and session
-factory initialization without a database, using both an explicit registration
-order and Spring's classpath scan order. PostgreSQL integration still requires
-a configured datasource and the installed SQL schema.
+PostgreSQL integration requires a configured datasource. Flyway applies the
+migrations before Hibernate validates the mappings.
