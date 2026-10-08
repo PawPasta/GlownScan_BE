@@ -2,9 +2,9 @@
 
 ## Trạng thái
 
-`app_skin_analysis` database schema và JPA domain persistence model đã có trong
-Flyway V5. Các endpoint/application service mô tả trong tài liệu chưa được triển
-khai.
+`app_skin_analysis` database schema, JPA domain model và upload-intent table đã
+có trong Flyway V5/V6. `POST` upload intent, `POST` submit và `GET` theo ID đã
+được triển khai; history pagination vẫn là endpoint kế tiếp.
 
 ## API endpoints
 
@@ -13,7 +13,7 @@ khai.
 | `POST` | `/api/skin-analyses/upload-intent` | Tạo signed upload intent riêng cho ảnh phân tích. |
 | `POST` | `/api/skin-analyses` | Submit assessment + ảnh đã upload, tạo analysis session. |
 | `GET` | `/api/skin-analyses/{analysisId}` | Lấy trạng thái và kết quả của một session thuộc current user. |
-| `GET` | `/api/skin-analyses` | Lấy lịch sử sessions của current user, có pagination. |
+| `GET` | `/api/skin-analyses` | Lấy lịch sử sessions của current user, có pagination. _Chưa triển khai._ |
 | `GET` | `/api/profile/skin` | Lấy current derived skin profile. |
 
 Tất cả endpoints yêu cầu Bearer JWT. Client không gọi Gemini trực tiếp và không

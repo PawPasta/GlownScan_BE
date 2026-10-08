@@ -2,9 +2,11 @@
 
 ## Trạng thái
 
-Tài liệu này ghi nhận thiết kế đã chốt cho Skin Analysis. Migration Flyway V5 và
-JPA domain persistence model đã được triển khai. Application service, worker,
-upload flow, Gemini adapter và HTTP endpoints vẫn là các bước tiếp theo.
+Tài liệu này ghi nhận thiết kế đã chốt cho Skin Analysis. Flyway migrations,
+JPA domain persistence model, Cloudinary upload intent, Gemini adapter, outbox
+worker và endpoints submit/status đã được triển khai. History API, private asset
+delivery, retry recovery sau process crash và skin-profile projection vẫn là các
+bước tiếp theo.
 
 ## Mục tiêu và phạm vi
 
@@ -24,7 +26,8 @@ Các quyết định recommendation phải do business rules của GlowScan xử
 ## Quyết định kiến trúc
 
 - Provider giai đoạn MVP/development: Gemini Developer API.
-- Gemini chỉ là `SkinAnalysisProvider`; core domain không phụ thuộc Gemini.
+- Gemini config và DTO nằm trong package gốc `gemini`; logic phân tích được đóng gói
+  trong `GeminiSkinAnalysisService` thuộc application layer của Skin Analysis.
 - MCP không tham gia inference ảnh. MCP chỉ có thể được cân nhắc sau này cho
   assistant/admin tools.
 - Mỗi lần phân tích là một `AnalysisSession` bất biến. `SkinProfile` chỉ là
@@ -38,7 +41,7 @@ Các quyết định recommendation phải do business rules của GlowScan xử
 Mobile/Web
   -> upload ảnh skin-analysis riêng
   -> GlowScan API tạo analysis session
-  -> worker gọi SkinAnalysisProvider (Gemini)
+  -> worker gọi GeminiSkinAnalysisService
   -> validate và chuẩn hóa observations
   -> lưu immutable result
   -> update SkinProfile projection
@@ -51,11 +54,12 @@ Skin Analysis là module mới, tách khỏi `profile`:
 
 ```text
 skinanalysis/
-  application/      SkinAnalysisService, AnalysisWorker, ProfileProjectionService
-  controller/       SkinAnalysisController và DTO API
+  application/      các service, gồm GeminiSkinAnalysisService, và dto/request|response
+  controller/       SkinAnalysisController
   domain/           AnalysisSession, Observation, AssessmentSnapshot, enums
-  infrastructure/   JPA repositories, Gemini adapter, storage adapter
-  port/             SkinAnalysisProvider, AnalysisImageStoragePort
+  infrastructure/   JPA repositories
+
+gemini/              config/properties và request/response DTO cho Gemini
 ```
 
 `profile` tiếp tục sở hữu `UserProfile` và `SkinProfile`; `skinanalysis` sở hữu
@@ -133,8 +137,9 @@ Chi tiết schema annotation ở [SKIN_ANALYSIS_API.md](SKIN_ANALYSIS_API.md).
 ## Privacy và an toàn
 
 - Ảnh skin analysis là asset riêng, không dùng lại avatar.
-- Dùng private storage, `publicId` bất biến theo analysis session và signed URL
-  có hạn khi cần hiển thị/tải ảnh.
+- `publicId` là bất biến theo upload intent. Bản MVP hiện lấy bản JPEG transform
+  từ Cloudinary để worker gửi bytes đến Gemini; trước public beta phải thay bằng
+  private/authenticated storage và signed delivery URL có hạn.
 - Xóa EXIF/GPS trước khi xử lý nếu pipeline storage chưa thực hiện việc này.
 - Lưu consent version, thời điểm consent và mục đích xử lý.
 - Có retention/deletion policy cho ảnh, analysis result và derived data.
@@ -148,7 +153,7 @@ Chi tiết schema annotation ở [SKIN_ANALYSIS_API.md](SKIN_ANALYSIS_API.md).
 1. Chốt questionnaire v1, taxonomy và nội dung consent/disclaimer.
 2. Thêm Flyway migration cho `skinanalysis` schema/tables.
 3. Xây upload intent riêng cho analysis image và session API bất đồng bộ.
-4. Tạo `SkinAnalysisProvider` mock cùng state machine và test workflow.
-5. Tích hợp `GeminiSkinAnalysisProvider` theo [GEMINI_SKIN_ANALYSIS.md](GEMINI_SKIN_ANALYSIS.md).
+4. Tạo mock cho `GeminiSkinAnalysisService` cùng state machine và test workflow.
+5. Tích hợp Gemini theo [GEMINI_SKIN_ANALYSIS.md](GEMINI_SKIN_ANALYSIS.md).
 6. Implement quality gate, validation, retry/outbox và profile projection.
 7. Tích hợp overlay annotation ở Flutter/Web.

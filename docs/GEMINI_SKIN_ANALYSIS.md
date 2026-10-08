@@ -37,28 +37,20 @@ deploy. Không hard-code model hoặc key trong source.
 
 ## Java adapter shape
 
-Vòng đầu nên gọi Gemini REST API qua Spring `RestClient`; project không cần thêm
+Gemini được gọi qua REST API bằng Spring `RestClient`; project không cần thêm
 Google SDK chỉ để thực hiện request đơn giản.
 
 ```java
-public interface SkinAnalysisProvider {
-    SkinAnalysisProviderResult analyze(AnalysisImage image);
-}
-```
-
-```java
-@Component
+@Service
 @RequiredArgsConstructor
-class GeminiSkinAnalysisProvider implements SkinAnalysisProvider {
+class GeminiSkinAnalysisService {
 
     private final RestClient geminiRestClient;
     private final GeminiProperties properties;
 
-    @Override
-    public SkinAnalysisProviderResult analyze(AnalysisImage image) {
-        // Build an Interactions API request with image bytes and JSON schema.
-        // Parse the model output, validate it and map it to domain DTOs.
-        throw new UnsupportedOperationException("Implementation pending");
+    public GeminiAnalysisResult analyze(GeminiAnalysisRequest request) {
+        // POST /v1beta/interactions with inline image bytes and JSON Schema.
+        // Validate the response before returning the integration result.
     }
 }
 ```
@@ -66,16 +58,23 @@ class GeminiSkinAnalysisProvider implements SkinAnalysisProvider {
 `GeminiProperties` là `@ConfigurationProperties(prefix = "app.gemini")` và phải
 được validate `apiKey`, `model` và `timeout` lúc startup.
 
+Config và DTO giao tiếp Gemini nằm trong package gốc `com.pawpasta.glowscan_be.gemini`,
+ngang cấp với `email`. `GeminiSkinAnalysisService` nằm trong `skinanalysis.application`
+để application layer điều phối việc gọi provider và chuẩn hóa kết quả.
+
 ## Image transport
 
-Không để client gửi Gemini image URL trực tiếp. Backend có thể:
+Không để client gửi Gemini image URL trực tiếp. Backend hiện:
 
-1. Lấy bytes của ảnh private từ storage.
-2. Chuẩn hóa MIME type/kích thước, loại EXIF nhạy cảm nếu cần.
-3. Gửi inline base64 cho Gemini với `image/jpeg` hoặc `image/webp`.
+1. Nhận Cloudinary upload intent chỉ thuộc current user.
+2. Worker tải bản `f_jpg` từ Cloudinary, kiểm tra ảnh có thể decode, tính SHA-256
+   và lấy dimensions thực tế.
+3. Gửi inline base64 JPEG cho Gemini với JSON Schema.
 
 Gemini Files API có thể được cân nhắc cho ảnh lớn hoặc ảnh cần dùng nhiều lần.
-Không tạo public Cloudinary URL chỉ để Gemini đọc được ảnh.
+MVP dùng delivery URL Cloudinary do backend dựng để worker tải ảnh; không trả
+Gemini key hoặc URL tùy ý từ client. Trước public beta phải chuyển asset này sang
+private/authenticated delivery URL.
 
 ## Structured output contract
 
@@ -162,7 +161,7 @@ Không trả Gemini raw response/error body ra client và không log base64 ản
 ## Testing
 
 - Unit test prompt payload/schema mapper với fixture JSON hợp lệ và không hợp lệ.
-- Contract test dùng mock `SkinAnalysisProvider`; không cần Gemini key khi test.
+- Contract test dùng mock `GeminiSkinAnalysisService`; không cần gọi Gemini thật.
 - Integration test chỉ chạy khi có environment riêng và ảnh fixture có consent.
 - Theo dõi quota, latency, rejection rate, validation failures và phân bố confidence
   trước khi mở public beta.
