@@ -1,4 +1,4 @@
-package com.pawpasta.glowscan_be.auth.controller.dto.response;
+package com.pawpasta.glowscan_be.auth.application.dto.response;
 
 
 import lombok.AllArgsConstructor;

@@ -1,4 +1,4 @@
-package com.pawpasta.glowscan_be.auth.controller.dto.request;
+package com.pawpasta.glowscan_be.auth.application.dto.request;
 
 
 import com.fasterxml.jackson.annotation.JsonAlias;

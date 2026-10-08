@@ -1,14 +1,14 @@
 package com.pawpasta.glowscan_be.auth.application;
 
-import com.pawpasta.glowscan_be.auth.controller.dto.request.ChangePasswordRequest;
+import com.pawpasta.glowscan_be.auth.application.dto.request.ChangePasswordRequest;
 import com.pawpasta.glowscan_be.email.EmailContent;
-import com.pawpasta.glowscan_be.auth.controller.dto.request.LoginRequest;
-import com.pawpasta.glowscan_be.auth.controller.dto.request.RefreshTokenRequest;
-import com.pawpasta.glowscan_be.auth.controller.dto.request.RegisterRequest;
-import com.pawpasta.glowscan_be.auth.controller.dto.request.ResetPasswordRequest;
-import com.pawpasta.glowscan_be.auth.controller.dto.request.VerificationEmailRequest;
-import com.pawpasta.glowscan_be.auth.controller.dto.request.VerifyResetPasswordRequest;
-import com.pawpasta.glowscan_be.auth.controller.dto.response.LoginResponse;
+import com.pawpasta.glowscan_be.auth.application.dto.request.LoginRequest;
+import com.pawpasta.glowscan_be.auth.application.dto.request.RefreshTokenRequest;
+import com.pawpasta.glowscan_be.auth.application.dto.request.RegisterRequest;
+import com.pawpasta.glowscan_be.auth.application.dto.request.ResetPasswordRequest;
+import com.pawpasta.glowscan_be.auth.application.dto.request.VerificationEmailRequest;
+import com.pawpasta.glowscan_be.auth.application.dto.request.VerifyResetPasswordRequest;
+import com.pawpasta.glowscan_be.auth.application.dto.response.LoginResponse;
 import com.pawpasta.glowscan_be.auth.domain.ActionToken;
 import com.pawpasta.glowscan_be.auth.domain.RefreshToken;
 import com.pawpasta.glowscan_be.auth.domain.Role;
