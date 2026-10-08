@@ -17,7 +17,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.Generated;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.generator.EventType;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -58,7 +60,8 @@ public class AnalysisImage {
     @Column(name = "height", nullable = false)
     private Integer height;
 
-    @Column(name = "sha256", nullable = false, length = 64)
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "sha256", nullable = false, length = 64, columnDefinition = "char(64)")
     private String sha256;
 
     @Generated(event = EventType.INSERT)
