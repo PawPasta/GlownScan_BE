@@ -12,6 +12,7 @@ import java.time.Duration;
 public record GeminiProperties(
         @NotBlank String apiKey,
         @NotBlank String model,
-        @NotNull Duration timeout
+        @NotNull Duration timeout,
+        @NotBlank String baseUrl
 ) {
 }
