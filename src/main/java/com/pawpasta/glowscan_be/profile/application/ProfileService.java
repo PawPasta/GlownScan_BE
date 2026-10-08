@@ -9,8 +9,10 @@ import com.pawpasta.glowscan_be.cloudinary.adapter.dto.SignedUploadIntent;
 import com.pawpasta.glowscan_be.cloudinary.adapter.dto.SignedUploadRequest;
 import com.pawpasta.glowscan_be.cloudinary.port.ImageStoragePort;
 import com.pawpasta.glowscan_be.profile.controller.dto.AvatarUploadIntentResponse;
+import com.pawpasta.glowscan_be.profile.controller.dto.PersonalProfileResponse;
 import com.pawpasta.glowscan_be.profile.controller.dto.SkinProfileResponse;
 import com.pawpasta.glowscan_be.profile.controller.dto.UpdateAvatarRequest;
+import com.pawpasta.glowscan_be.profile.controller.dto.UpdatePersonalProfileRequest;
 import com.pawpasta.glowscan_be.profile.domain.SkinProfile;
 import com.pawpasta.glowscan_be.profile.domain.UserProfile;
 import com.pawpasta.glowscan_be.profile.infrastructure.SkinProfileRepository;
@@ -73,7 +75,7 @@ public class ProfileService {
 
     @Transactional
     public String confirmAvatar(UpdateAvatarRequest request) {
-        User user = currentUserProvider.getUserContext();
+        User user = lockCurrentUser();
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         CloudinaryUploadIntent uploadIntent = uploadIntentRepository
                 .findByIdAndUserIdForUpdate(request.uploadIntentId(), user.getId())
@@ -93,6 +95,38 @@ public class ProfileService {
         uploadIntent.setConsumedAt(now);
         uploadIntentRepository.save(uploadIntent);
         return "Avatar updated successfully";
+    }
+
+    @Transactional(readOnly = true)
+    public PersonalProfileResponse getCurrentPersonalProfile() {
+        User user = currentUserProvider.getUserContext();
+        UserProfile userProfile = userProfileRepository.findByUserId(user.getId())
+                .orElseThrow(() -> ApiExceptionFactory.notFound("Personal profile not found"));
+
+        return toPersonalProfileResponse(userProfile);
+    }
+
+    @Transactional
+    public PersonalProfileResponse updateCurrentPersonalProfile(UpdatePersonalProfileRequest request) {
+        if (!request.hasUpdates()) {
+            throw ApiExceptionFactory.badRequest("At least one profile field must be provided");
+        }
+
+        User user = lockCurrentUser();
+        UserProfile userProfile = userProfileRepository.findByUserId(user.getId())
+                .orElseGet(() -> createUserProfile(user));
+
+        if (request.hasFullName()) {
+            userProfile.setFullName(request.getFullName() == null ? null : request.getFullName().strip());
+        }
+        if (request.hasDateOfBirth()) {
+            userProfile.setDateOfBirth(request.getDateOfBirth());
+        }
+        if (request.hasGender()) {
+            userProfile.setGender(request.getGender());
+        }
+
+        return toPersonalProfileResponse(userProfileRepository.saveAndFlush(userProfile));
     }
 
     @Transactional(readOnly = true)
@@ -119,6 +153,18 @@ public class ProfileService {
         UserProfile profile = new UserProfile();
         profile.setUser(user);
         return profile;
+    }
+
+    private PersonalProfileResponse toPersonalProfileResponse(UserProfile userProfile) {
+        return new PersonalProfileResponse(
+                userProfile.getId(),
+                userProfile.getFullName(),
+                userProfile.getAvatarUrl(),
+                userProfile.getDateOfBirth(),
+                userProfile.getGender(),
+                userProfile.getCreatedAt(),
+                userProfile.getUpdatedAt()
+        );
     }
 
     private User lockCurrentUser() {

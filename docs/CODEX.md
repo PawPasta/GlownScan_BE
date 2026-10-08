@@ -20,7 +20,7 @@ Tài liệu này phản ánh source hiện tại. Khi có khác biệt, lấy Fl
 | Module | Vai trò |
 | --- | --- |
 | `auth` | Register, xác thực email, login/logout, refresh token, reset/change password và JWT. |
-| `profile` | Entity user/skin profile, API upload avatar và đọc skin profile hiện tại. |
+| `profile` | Entity user/skin profile, API đọc/cập nhật hồ sơ cá nhân, upload avatar và đọc skin profile hiện tại. |
 | `cloudinary` | Ký signed direct upload và lưu upload intent tạm thời. |
 | `email` | Render/gửi email xác thực và reset mật khẩu. |
 | `shared` | Security context, OpenAPI, CORS, response wrapper và exception handling. |
@@ -51,6 +51,20 @@ secret. Tạo intent mới sẽ revoke intent chưa dùng trước đó của us
 Registration chỉ tạo account auth. `fullName` và các thông tin khác được cập
 nhật qua user profile; luồng xác nhận avatar tạo profile tối thiểu nếu account
 chưa có profile.
+
+## Personal profile
+
+| Endpoint | Quyền | Mục đích |
+| --- | --- | --- |
+| `GET /api/profile` | JWT | Đọc hồ sơ cá nhân hiện tại, gồm `fullName`, `avatarUrl`, `dateOfBirth`, `gender` và timestamps. |
+| `PATCH /api/profile` | JWT | Cập nhật từng phần `fullName`, `dateOfBirth`, `gender`; không cho cập nhật avatar trực tiếp. |
+
+`PATCH` tạo `user_profiles` nếu account chưa có profile. Field không xuất hiện
+trong JSON được giữ nguyên; field có giá trị `null` sẽ được xoá. Request rỗng bị
+từ chối với `400`. `fullName` tối đa 150 ký tự và không được chỉ chứa khoảng
+trắng; `dateOfBirth` không được nằm trong tương lai. Giá trị `gender` hợp lệ là
+`MALE`, `FEMALE`, `OTHER`, `PREFER_NOT_TO_SAY`. `GET` trả `404` nếu profile chưa
+từng được tạo. Avatar tiếp tục chỉ được cập nhật qua luồng signed upload riêng.
 
 ## Cloudinary avatar
 
