@@ -1,4 +1,4 @@
-package com.pawpasta.glowscan_be.cloudinary.infrastructure;
+package com.pawpasta.glowscan_be.cloudinary.infrastructure.repository;
 
 import com.pawpasta.glowscan_be.cloudinary.domain.CloudinaryUploadIntent;
 import jakarta.persistence.LockModeType;

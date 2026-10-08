@@ -1,4 +1,4 @@
-package com.pawpasta.glowscan_be.cloudinary.model;
+package com.pawpasta.glowscan_be.cloudinary.adapter.dto;
 
 import java.time.OffsetDateTime;
 import java.util.Set;
