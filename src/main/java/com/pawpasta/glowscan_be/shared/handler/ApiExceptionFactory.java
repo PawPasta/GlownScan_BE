@@ -37,8 +37,16 @@ public final class ApiExceptionFactory {
         return new ResponseStatusException(HttpStatus.NOT_ACCEPTABLE, message);
     }
 
+    public static ResponseStatusException tooManyRequests(String message) {
+        return new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, message);
+    }
+
     public static ResponseStatusException internalServerError(String message) {
         return new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, message);
+    }
+
+    public static ResponseStatusException serviceUnavailable(String message) {
+        return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, message);
     }
 
 }
