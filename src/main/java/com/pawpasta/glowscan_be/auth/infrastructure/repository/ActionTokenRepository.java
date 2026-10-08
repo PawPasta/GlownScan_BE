@@ -17,6 +17,11 @@ import java.util.UUID;
 @Repository
 public interface ActionTokenRepository extends JpaRepository<ActionToken, UUID> {
 
+    Optional<ActionToken> findFirstByUserIdAndPurposeOrderByCreatedAtDesc(
+            UUID userId,
+            ActionTokenPurpose purpose
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select actionToken

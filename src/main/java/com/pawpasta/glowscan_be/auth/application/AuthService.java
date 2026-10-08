@@ -5,6 +5,7 @@ import com.pawpasta.glowscan_be.email.EmailContent;
 import com.pawpasta.glowscan_be.auth.application.dto.request.LoginRequest;
 import com.pawpasta.glowscan_be.auth.application.dto.request.RefreshTokenRequest;
 import com.pawpasta.glowscan_be.auth.application.dto.request.RegisterRequest;
+import com.pawpasta.glowscan_be.auth.application.dto.request.ResendVerificationEmailRequest;
 import com.pawpasta.glowscan_be.auth.application.dto.request.ResetPasswordRequest;
 import com.pawpasta.glowscan_be.auth.application.dto.request.VerificationEmailRequest;
 import com.pawpasta.glowscan_be.auth.application.dto.request.VerifyResetPasswordRequest;
@@ -52,8 +53,10 @@ public class AuthService {
     private static final String EMAIL_REGEX = "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$";
     private static final String REGISTRATION_SUCCESS_MESSAGE = "Registration successful";
     private static final String EMAIL_VERIFIED_SUCCESS_MESSAGE = "Email verified successfully";
+    private static final String VERIFICATION_EMAIL_RESENT_MESSAGE = "Verification email has been resent.";
     private static final String LOGOUT_SUCCESS_MESSAGE = "Logged out successfully";
     private static final String PASSWORD_RESET_LINK_SENT_MESSAGE = "Password reset link has been sent.";
+    private static final String PASSWORD_RESET_EMAIL_RESENT_MESSAGE = "Password reset email has been resent.";
     private static final String PASSWORD_RESET_SUCCESS_MESSAGE = "Password reset successfully";
     private static final String PASSWORD_CHANGED_SUCCESS_MESSAGE = "Password changed successfully";
     private static final String PASSWORD_RESET_REVOKE_REASON = "PASSWORD_RESET";
@@ -68,8 +71,14 @@ public class AuthService {
     @Value("${app.tokens.verify-email-ttl}")
     private Duration verifyEmailTokenTtl;
 
+    @Value("${app.tokens.verify-email-resend-cooldown}")
+    private Duration verifyEmailResendCooldown;
+
     @Value("${app.tokens.reset-password-ttl}")
     private Duration resetPasswordTokenTtl;
+
+    @Value("${app.tokens.reset-password-resend-cooldown}")
+    private Duration resetPasswordResendCooldown;
 
     @Value("${app.tokens.refresh-token-ttl}")
     private Duration refreshTokenTtl;
@@ -344,6 +353,63 @@ public class AuthService {
         return EMAIL_VERIFIED_SUCCESS_MESSAGE;
     }
 
+    @Transactional
+    public String resendVerificationEmail(ResendVerificationEmailRequest request) {
+        if (request == null) {
+            throw ApiExceptionFactory.badRequest("Resend verification email request is required");
+        }
+
+        User user = findLockedUserByEmail(normalizeEmail(request.getEmail()));
+        if (user.getStatus() != UserStatus.PENDING_VERIFICATION) {
+            throw ApiExceptionFactory.conflict("User is not pending verification");
+        }
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        actionTokenRepository.findFirstByUserIdAndPurposeOrderByCreatedAtDesc(
+                user.getId(),
+                ActionTokenPurpose.VERIFY_EMAIL
+        ).ifPresent(latestToken -> enforceActionEmailResendCooldown(
+                latestToken,
+                now,
+                verifyEmailResendCooldown,
+                "verification email"
+        ));
+
+        actionTokenRepository.revokePendingByUserIdAndPurpose(
+                user.getId(),
+                ActionTokenPurpose.VERIFY_EMAIL,
+                now
+        );
+        createAndScheduleActionToken(
+                user,
+                ActionTokenPurpose.VERIFY_EMAIL,
+                verifyEmailTokenTtl,
+                now
+        );
+
+        return VERIFICATION_EMAIL_RESENT_MESSAGE;
+    }
+
+    private void enforceActionEmailResendCooldown(
+            ActionToken latestToken,
+            OffsetDateTime now,
+            Duration cooldown,
+            String emailDescription
+    ) {
+        if (latestToken.getCreatedAt() == null || cooldown == null
+                || cooldown.isNegative() || cooldown.isZero()) {
+            return;
+        }
+
+        OffsetDateTime resendAllowedAt = latestToken.getCreatedAt().plus(cooldown);
+        if (resendAllowedAt.isAfter(now)) {
+            long retryAfterSeconds = Math.max(1, Duration.between(now, resendAllowedAt).toSeconds() + 1);
+            throw ApiExceptionFactory.tooManyRequests(
+                    "Please wait " + retryAfterSeconds + " seconds before resending the " + emailDescription
+            );
+        }
+    }
+
     @Transactional(noRollbackFor = ResponseStatusException.class)
     public LoginResponse login(LoginRequest loginRequest) {
         if (loginRequest == null || loginRequest.getEmail() == null || loginRequest.getEmail().isBlank()
@@ -474,6 +540,15 @@ public class AuthService {
 
     @Transactional
     public String resetPassword(ResetPasswordRequest resetPasswordRequest) {
+        return issuePasswordResetEmail(resetPasswordRequest, PASSWORD_RESET_LINK_SENT_MESSAGE);
+    }
+
+    @Transactional
+    public String resendPasswordResetEmail(ResetPasswordRequest resetPasswordRequest) {
+        return issuePasswordResetEmail(resetPasswordRequest, PASSWORD_RESET_EMAIL_RESENT_MESSAGE);
+    }
+
+    private String issuePasswordResetEmail(ResetPasswordRequest resetPasswordRequest, String successMessage) {
         if (resetPasswordRequest == null) {
             throw ApiExceptionFactory.badRequest("Reset password request is required");
         }
@@ -482,6 +557,16 @@ public class AuthService {
         requireActiveAccount(user, () -> ApiExceptionFactory.forbidden("Only active accounts can reset their password"));
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        actionTokenRepository.findFirstByUserIdAndPurposeOrderByCreatedAtDesc(
+                user.getId(),
+                ActionTokenPurpose.RESET_PASSWORD
+        ).ifPresent(latestToken -> enforceActionEmailResendCooldown(
+                latestToken,
+                now,
+                resetPasswordResendCooldown,
+                "password reset email"
+        ));
+
         actionTokenRepository.revokePendingByUserIdAndPurpose(
                 user.getId(),
                 ActionTokenPurpose.RESET_PASSWORD,
@@ -489,7 +574,7 @@ public class AuthService {
         );
         createAndScheduleActionToken(user, ActionTokenPurpose.RESET_PASSWORD, resetPasswordTokenTtl, now);
 
-        return PASSWORD_RESET_LINK_SENT_MESSAGE;
+        return successMessage;
     }
 
     @Transactional

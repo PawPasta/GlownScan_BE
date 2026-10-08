@@ -114,6 +114,33 @@ refresh token rotation và JWT `token_version` validation.
 
 Thay đổi schema phải thêm migration Flyway mới, không sửa migration đã áp dụng.
 
+`POST /api/auth/resend-verification-email` receives `email`. After the default
+30-second cooldown, it revokes the previous verification token, creates a new
+token with the configured verification TTL, and sends another email. Calls made
+during the cooldown return HTTP `429`.
+
+`POST /api/auth/resend-password-reset-email` applies the same token rotation and
+cooldown rules to password reset emails. Repeated calls to the original
+`POST /api/auth/reset-password` endpoint also respect this cooldown.
+
+## Quy tắc commit code
+
+Commit message dùng cấu trúc `hành động : message`.
+
+Ví dụ: `feat : resend password function`
+
+Các hành động thường dùng:
+
+- `feat`: thêm chức năng mới.
+- `fix`: sửa lỗi.
+- `refactor`: thay đổi cấu trúc code nhưng không thay đổi nghiệp vụ.
+- `test`: thêm hoặc cập nhật test.
+- `docs`: cập nhật tài liệu.
+- `chore`: cập nhật cấu hình, dependency hoặc công việc bảo trì.
+
+Message cần ngắn gọn, viết ở dạng mệnh lệnh và mô tả đúng thay đổi chính của
+commit.
+
 ## Exception handling
 
 ## Exception handling
