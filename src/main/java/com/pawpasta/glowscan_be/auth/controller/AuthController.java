@@ -5,6 +5,7 @@ import com.pawpasta.glowscan_be.auth.application.dto.request.ChangePasswordReque
 import com.pawpasta.glowscan_be.auth.application.dto.request.LoginRequest;
 import com.pawpasta.glowscan_be.auth.application.dto.request.RefreshTokenRequest;
 import com.pawpasta.glowscan_be.auth.application.dto.request.RegisterRequest;
+import com.pawpasta.glowscan_be.auth.application.dto.request.ResendVerificationEmailRequest;
 import com.pawpasta.glowscan_be.auth.application.dto.request.ResetPasswordRequest;
 import com.pawpasta.glowscan_be.auth.application.dto.request.VerificationEmailRequest;
 import com.pawpasta.glowscan_be.auth.application.dto.request.VerifyResetPasswordRequest;
@@ -51,6 +52,20 @@ public class AuthController {
         return ApiResponse.success(message);
     }
 
+    @PostMapping(value = "/resend-verification-email",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    @Operation(
+            summary = "Resend the verification email",
+            description = "Revokes the previous verification token and sends a new one after the resend cooldown."
+    )
+    public ApiResponse<Void> resendVerificationEmail(
+            @Valid @RequestBody ResendVerificationEmailRequest request
+    ) {
+        return ApiResponse.success(authService.resendVerificationEmail(request));
+    }
+
     @PostMapping(value = "/login",
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
@@ -82,6 +97,20 @@ public class AuthController {
     @Operation(summary = "Request a password reset", description = "Sends a reset link for an existing active account.")
     public ApiResponse<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest resetPasswordRequest) {
         return ApiResponse.success(authService.resetPassword(resetPasswordRequest));
+    }
+
+    @PostMapping(value = "/resend-password-reset-email",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    @Operation(
+            summary = "Resend the password reset email",
+            description = "Revokes the previous password reset token and sends a new one after the resend cooldown."
+    )
+    public ApiResponse<Void> resendPasswordResetEmail(
+            @Valid @RequestBody ResetPasswordRequest resetPasswordRequest
+    ) {
+        return ApiResponse.success(authService.resendPasswordResetEmail(resetPasswordRequest));
     }
 
     @PostMapping(value = "/verify-reset-password-token",
