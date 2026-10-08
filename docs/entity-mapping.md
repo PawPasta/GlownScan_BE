@@ -21,6 +21,14 @@ database-managed.
 | user_profiles | UserProfile |
 | skin_profiles | SkinProfile |
 | app_cloudinary.upload_intents | CloudinaryUploadIntent |
+| app_skin_analysis.analysis_sessions | AnalysisSession |
+| app_skin_analysis.analysis_images | AnalysisImage |
+| app_skin_analysis.assessment_snapshots | AssessmentSnapshot |
+| app_skin_analysis.analysis_results | AnalysisResult |
+| app_skin_analysis.analysis_observations | AnalysisObservation |
+| app_skin_analysis.analysis_consents | AnalysisConsent |
+| app_skin_analysis.analysis_outbox | AnalysisOutboxEvent |
+| app_skin_analysis.upload_intents | AnalysisUploadIntent |
 
 Entities are split across `auth.domain`, `profile.domain`, `cloudinary.domain`, `notification.domain`
 and `audit.domain`. Relationships are lazy, unidirectional and have no ORM remove

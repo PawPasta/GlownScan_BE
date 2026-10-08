@@ -1,8 +1,8 @@
 package com.pawpasta.glowscan_be.cloudinary.adapter;
 
 import com.pawpasta.glowscan_be.cloudinary.config.CloudinaryProperties;
-import com.pawpasta.glowscan_be.cloudinary.model.SignedUploadIntent;
-import com.pawpasta.glowscan_be.cloudinary.model.SignedUploadRequest;
+import com.pawpasta.glowscan_be.cloudinary.adapter.dto.SignedUploadIntent;
+import com.pawpasta.glowscan_be.cloudinary.adapter.dto.SignedUploadRequest;
 import com.pawpasta.glowscan_be.cloudinary.port.ImageStoragePort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -28,8 +28,31 @@ public class CloudinaryStorageAdapter implements ImageStoragePort {
 
     @Override
     public SignedUploadIntent createSignedUpload(SignedUploadRequest request) {
+        return createSignedUpload(request, properties.avatar());
+    }
+
+    @Override
+    public SignedUploadIntent createSignedAnalysisUpload(SignedUploadRequest request) {
+        return createSignedUpload(request, properties.analysis());
+    }
+
+    @Override
+    public String avatarDeliveryUrl(String publicId) {
+        return deliveryUrl(publicId);
+    }
+
+    @Override
+    public String analysisDeliveryUrl(String publicId) {
+        return "https://res.cloudinary.com/" + properties.cloudName()
+                + "/image/upload/f_jpg/" + publicId;
+    }
+
+    private SignedUploadIntent createSignedUpload(
+            SignedUploadRequest request,
+            CloudinaryProperties.Upload uploadProperties
+    ) {
         long timestamp = Instant.now().getEpochSecond();
-        List<String> sortedAllowedFormats = properties.avatar().allowedFormats().stream()
+        List<String> sortedAllowedFormats = uploadProperties.allowedFormats().stream()
                 .map(String::toLowerCase)
                 .sorted(Comparator.naturalOrder())
                 .toList();
@@ -54,8 +77,7 @@ public class CloudinaryStorageAdapter implements ImageStoragePort {
         );
     }
 
-    @Override
-    public String avatarDeliveryUrl(String publicId) {
+    private String deliveryUrl(String publicId) {
         return "https://res.cloudinary.com/" + properties.cloudName() + "/image/upload/" + publicId;
     }
 

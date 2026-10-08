@@ -18,10 +18,11 @@ public record CloudinaryProperties(
         @NotBlank String cloudName,
         @NotBlank String apiKey,
         @NotBlank String apiSecret,
-        @NotNull @Valid Avatar avatar
+        @NotNull @Valid Upload avatar,
+        @NotNull @Valid Upload analysis
 ) {
 
-    public record Avatar(
+    public record Upload(
             @NotBlank String folder,
             @NotEmpty Set<@Pattern(regexp = "(?i)jpg|jpeg|png|webp") String> allowedFormats,
             @Positive long maxBytes,
